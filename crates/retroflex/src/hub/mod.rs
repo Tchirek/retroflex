@@ -56,6 +56,7 @@ pub async fn run(a: HubArgs) -> Result<()> {
         .route("/api/s/{station}/cover/{cover}", get(proxy::cover))
         .route("/api/s/{station}/lyrics/{track}", get(proxy::lyrics))
         .route("/api/rooms", post(rooms::create))
+        .route("/api/rooms/{id}", get(rooms::probe))
         .route("/api/rooms/{id}/ws", get(rooms::join))
         .fallback(assets::serve)
         .layer(CorsLayer::permissive())

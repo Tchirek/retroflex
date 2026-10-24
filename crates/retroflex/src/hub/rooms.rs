@@ -367,6 +367,15 @@ pub struct JoinQuery {
     t: String,
 }
 
+// 戸の外で　まだ灯りあるかと　耳澄ます
+pub async fn probe(State(hub): State<Hub>, Path(id): Path<String>, Query(q): Query<JoinQuery>) -> StatusCode {
+    match hub.rooms.get(&id) {
+        Some(room) if same(&key_hash(&q.t), &room.ticket) => StatusCode::NO_CONTENT,
+        Some(_) => StatusCode::FORBIDDEN,
+        None => StatusCode::NOT_FOUND,
+    }
+}
+
 pub async fn join(State(hub): State<Hub>, Path(id): Path<String>, Query(q): Query<JoinQuery>, ws: WebSocketUpgrade) -> Response {
     match hub.rooms.get(&id) {
         Some(room) if same(&key_hash(&q.t), &room.ticket) => {
