@@ -1,0 +1,22 @@
+# 辻の灯を　夜通し守る　番の役
+[Unit]
+Description=Retroflex hub
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+EnvironmentFile=/etc/retroflex/hub.env
+ExecStart=/opt/retroflex/retroflex hub
+Restart=always
+RestartSec=2
+DynamicUser=yes
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+MemoryMax=256M
+LogLevelMax=info
+
+[Install]
+WantedBy=multi-user.target
