@@ -113,6 +113,8 @@ jobs:
         working-directory: app
       # 窓ひとつ　三つの国の　形にて
       - uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
         with:
           projectPath: app
           releaseId: ${{ needs.release.outputs.id }}
