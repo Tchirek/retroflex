@@ -1,0 +1,22 @@
+[package]
+name = "retroflex-app"
+version = "0.1.0"
+description = "Listen together, without a center."
+edition = "2024"
+license = "AGPL-3.0-or-later"
+repository = "https://github.com/Tchirek/retroflex"
+
+[lib]
+name = "retroflex_app_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2.7.4" }
+
+[dependencies]
+tauri = { version = "2.12.5" }
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = true
