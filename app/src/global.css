@@ -1,0 +1,132 @@
+/* 夜の色　薄き硝子を　重ね置く */
+:root {
+  --fg: #fff;
+  --fg-2: rgba(255, 255, 255, 0.64);
+  --fg-3: rgba(255, 255, 255, 0.38);
+  --fg-4: rgba(255, 255, 255, 0.16);
+  --glass: rgba(255, 255, 255, 0.07);
+  --glass-2: rgba(255, 255, 255, 0.13);
+  --glass-3: rgba(255, 255, 255, 0.22);
+  --stroke: rgba(255, 255, 255, 0.1);
+  --shade: rgba(8, 8, 12, 0.42);
+  --radius: 14px;
+  --radius-lg: 22px;
+  --ease: cubic-bezier(0.2, 0.8, 0.2, 1);
+  --spring: cubic-bezier(0.34, 1.4, 0.64, 1);
+  --top: env(safe-area-inset-top, 0px);
+  --bottom: env(safe-area-inset-bottom, 0px);
+  --sans: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Segoe UI Variable Display", "Segoe UI",
+    "PingFang SC", "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Noto Sans CJK SC", "Microsoft YaHei UI", system-ui,
+    sans-serif;
+  color-scheme: dark;
+}
+
+* {
+  box-sizing: border-box;
+  -webkit-tap-highlight-color: transparent;
+}
+
+html,
+body {
+  margin: 0;
+  height: 100%;
+  overflow: hidden;
+  background: #0b0b0f;
+  color: var(--fg);
+  font-family: var(--sans);
+  font-size: 15px;
+  line-height: 1.4;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+  overscroll-behavior: none;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+#app {
+  position: fixed;
+  inset: 0;
+}
+
+button {
+  font: inherit;
+  color: inherit;
+  background: none;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+}
+
+input,
+textarea {
+  font: inherit;
+  color: inherit;
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+img {
+  -webkit-user-drag: none;
+}
+
+::selection {
+  background: rgba(255, 255, 255, 0.28);
+}
+
+.glass {
+  background: var(--glass);
+  border: 1px solid var(--stroke);
+  backdrop-filter: blur(28px) saturate(170%);
+  -webkit-backdrop-filter: blur(28px) saturate(170%);
+}
+
+.icon-btn {
+  display: grid;
+  place-items: center;
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  color: var(--fg-2);
+  transition:
+    background 0.2s var(--ease),
+    color 0.2s var(--ease),
+    transform 0.25s var(--spring);
+}
+
+.icon-btn:hover {
+  color: var(--fg);
+  background: var(--glass);
+}
+
+.icon-btn:active {
+  transform: scale(0.9);
+}
+
+.icon-btn.on {
+  color: var(--fg);
+  background: var(--glass-2);
+}
+
+.scroll {
+  overflow-y: auto;
+  scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
+}
+
+.scroll::-webkit-scrollbar {
+  display: none;
+}
+
+.ellipsis {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+  }
+}
