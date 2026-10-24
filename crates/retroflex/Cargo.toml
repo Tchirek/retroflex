@@ -14,6 +14,7 @@ bytes = "1.12.1"
 clap = { version = "4.6.7", features = ["derive", "env"] }
 data-encoding = "2.11.1"
 dirs = "7.0.0"
+encoding_rs = "0.8.42"
 futures-util = "0.3.34"
 getrandom = "0.4.3"
 image = { version = "0.25.10", default-features = false, features = ["jpeg", "png"] }
@@ -28,5 +29,5 @@ tokio-tungstenite = { version = "0.30.0", features = ["rustls-tls-webpki-roots"]
 tower-http = { version = "0.7.1", features = ["cors", "trace"] }
 tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
-ureq = "3.5.0"
+ureq = { version = "3.5.0", features = ["json"] }
 walkdir = "2.5.0"
