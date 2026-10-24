@@ -16,7 +16,6 @@ ProtectHome=yes
 PrivateTmp=yes
 PrivateDevices=yes
 MemoryMax=256M
-LogLevelMax=info
 
 [Install]
 WantedBy=multi-user.target

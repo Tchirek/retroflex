@@ -6,7 +6,7 @@ Wants=network-online.target
 
 [Service]
 LoadCredential=tunnel.json:/etc/retroflex/tunnel.json
-ExecStart=/opt/retroflex/cloudflared tunnel --no-autoupdate --config /etc/retroflex/cloudflared.yml run --credentials-file %d/tunnel.json
+ExecStart=/bin/sh -c 'exec /opt/retroflex/cloudflared tunnel --no-autoupdate --config /etc/retroflex/cloudflared.yml run --credentials-file "$CREDENTIALS_DIRECTORY/tunnel.json"'
 Restart=always
 RestartSec=3
 DynamicUser=yes
@@ -15,7 +15,6 @@ ProtectSystem=strict
 ProtectHome=yes
 PrivateTmp=yes
 MemoryMax=256M
-LogLevelMax=notice
 
 [Install]
 WantedBy=multi-user.target
