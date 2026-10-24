@@ -11,6 +11,12 @@
 
   const people = $derived(Object.values(room.members).sort((a, b) => (a.id === room.me ? 1 : b.id === room.me ? -1 : a.id - b.id)));
 
+  // 呼ばれれば　すぐに指先　そこに置く
+  function focus(node: HTMLInputElement) {
+    node.focus();
+    node.select();
+  }
+
   function initial(nick: string | undefined): string {
     return nick ? [...nick][0] : "·";
   }
@@ -57,12 +63,11 @@
     {/each}
   </div>
   {#if editing}
-    <!-- svelte-ignore a11y_autofocus -->
     <input
       class="rename glass"
       bind:value={draft}
       maxlength="24"
-      autofocus
+      use:focus
       aria-label="Name"
       onkeydown={(e) => {
         if (e.key === "Enter") commit();
