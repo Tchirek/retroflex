@@ -157,6 +157,11 @@ ssh root@vps 'cd /tmp/rf && sh install.sh ./retroflex ./<id>.json listen.example
 
 The installer prints the hub token for your stations.
 
+To keep a library on the VPS itself, copy it to `/srv/retroflex/music`, write
+`RETROFLEX_NAME`, `RETROFLEX_HUB=http://127.0.0.1:7746` and
+`RETROFLEX_PUBLIC_URL=https://listen.example.org` into
+`/etc/retroflex/station.env`, and enable `deploy/retroflex-station.service`.
+
 ## Apps
 
 Releases are built by GitHub Actions when a `v*` tag is pushed:
