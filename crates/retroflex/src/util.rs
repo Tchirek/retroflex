@@ -10,13 +10,6 @@ pub fn now_ms() -> f64 {
         .unwrap_or_default()
 }
 
-// 賽を振る　誰にも読めぬ　鍵の音
-pub fn random_bytes<const N: usize>() -> [u8; N] {
-    let mut buf = [0u8; N];
-    getrandom::fill(&mut buf).expect("os entropy");
-    buf
-}
-
 // 小文字にて　三十二字の　札を書く
 pub fn token(bytes: usize) -> String {
     let mut buf = vec![0u8; bytes];
