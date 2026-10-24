@@ -1,3 +1,4 @@
+mod hub;
 mod proto;
 mod station;
 mod util;
@@ -15,6 +16,8 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Cmd {
+    #[command(about = "Run a hub: rooms, clock and relay")]
+    Hub(hub::HubArgs),
     #[command(about = "Share a music library through a hub")]
     Station(station::StationArgs),
 }
@@ -26,6 +29,7 @@ async fn main() -> anyhow::Result<()> {
         .with_env_filter(EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info,lofty=error")))
         .init();
     match Cli::parse().cmd {
+        Cmd::Hub(a) => hub::run(a).await,
         Cmd::Station(a) => station::run(a).await,
     }
 }
