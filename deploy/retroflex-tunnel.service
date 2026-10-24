@@ -1,0 +1,21 @@
+# 戸を開けず　裏の小道で　客を招く
+[Unit]
+Description=Retroflex tunnel
+After=network-online.target retroflex-hub.service
+Wants=network-online.target
+
+[Service]
+LoadCredential=tunnel.json:/etc/retroflex/tunnel.json
+ExecStart=/opt/retroflex/cloudflared tunnel --no-autoupdate --config /etc/retroflex/cloudflared.yml run --credentials-file %d/tunnel.json
+Restart=always
+RestartSec=3
+DynamicUser=yes
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+MemoryMax=256M
+LogLevelMax=notice
+
+[Install]
+WantedBy=multi-user.target
