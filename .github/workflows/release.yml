@@ -1,0 +1,168 @@
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing tag to build
+        required: true
+
+permissions:
+  contents: write
+
+env:
+  TAG: ${{ inputs.tag || github.ref_name }}
+  GH_TOKEN: ${{ github.token }}
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    outputs:
+      id: ${{ steps.make.outputs.id }}
+    steps:
+      - uses: actions/checkout@v4
+      # 札を立て　これより先の　荷を待たん
+      - id: make
+        run: |
+          gh release view "$TAG" >/dev/null 2>&1 || gh release create "$TAG" --title "Retroflex $TAG" --generate-notes
+          echo "id=$(gh api repos/${{ github.repository }}/releases/tags/$TAG --jq .id)" >> "$GITHUB_OUTPUT"
+
+  hub:
+    needs: release
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: ubuntu-latest, target: x86_64-unknown-linux-musl, zig: true }
+          - { os: ubuntu-latest, target: aarch64-unknown-linux-musl, zig: true }
+          - { os: macos-latest, target: aarch64-apple-darwin }
+          - { os: windows-latest, target: x86_64-pc-windows-msvc }
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TAG }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+      - run: npm ci && npm run build
+        working-directory: app
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}
+      # 異国へと　一つの身にて　旅立たす
+      - if: matrix.zig
+        run: |
+          pip install ziglang cargo-zigbuild
+          cargo zigbuild --release --locked --target ${{ matrix.target }}
+      - if: ${{ !matrix.zig }}
+        run: cargo build --release --locked --target ${{ matrix.target }}
+      - shell: bash
+        run: |
+          name="retroflex-$TAG-${{ matrix.target }}"
+          mkdir "$name"
+          cp README.md LICENSE "$name/"
+          if [ -f "target/${{ matrix.target }}/release/retroflex.exe" ]; then
+            cp "target/${{ matrix.target }}/release/retroflex.exe" "$name/"
+            7z a "$name.zip" "$name" >/dev/null
+            gh release upload "$TAG" "$name.zip" --clobber
+          else
+            cp "target/${{ matrix.target }}/release/retroflex" "$name/"
+            tar czf "$name.tar.gz" "$name"
+            gh release upload "$TAG" "$name.tar.gz" --clobber
+          fi
+
+  desktop:
+    needs: release
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: macos-latest, args: "--target universal-apple-darwin", targets: "aarch64-apple-darwin,x86_64-apple-darwin" }
+          - { os: ubuntu-22.04, args: "", targets: "" }
+          - { os: windows-latest, args: "", targets: "" }
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TAG }}
+      - if: startsWith(matrix.os, 'ubuntu')
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf \
+            libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev gstreamer1.0-plugins-base \
+            gstreamer1.0-plugins-good gstreamer1.0-plugins-bad gstreamer1.0-libav
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.targets }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: app/src-tauri
+      - run: npm ci
+        working-directory: app
+      # 窓ひとつ　三つの国の　形にて
+      - uses: tauri-apps/tauri-action@v0
+        with:
+          projectPath: app
+          releaseId: ${{ needs.release.outputs.id }}
+          args: ${{ matrix.args }}
+
+  android:
+    needs: release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TAG }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+      - uses: android-actions/setup-android@v3
+      - run: sdkmanager "ndk;27.2.12479018" "platforms;android-35" "build-tools;35.0.0"
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android,armv7-linux-androideabi,x86_64-linux-android,i686-linux-android
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: app/src-tauri
+      - run: npm ci
+        working-directory: app
+      # 緑の地　骨組み生みて　身を宿す
+      - run: |
+          npx tauri android init --ci
+          npx tauri android build --apk --ci
+        working-directory: app
+        env:
+          NDK_HOME: ${{ env.ANDROID_HOME }}/ndk/27.2.12479018
+      # 印なき　荷には仮にも　判を押す
+      - env:
+          KEYSTORE: ${{ secrets.ANDROID_KEYSTORE }}
+          KEYPASS: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+        run: |
+          apk=$(find app/src-tauri/gen/android -name '*universal-release-unsigned.apk' | head -1)
+          if [ -n "$KEYSTORE" ]; then echo "$KEYSTORE" | base64 -d > ks.jks; pass="$KEYPASS"; else
+            pass=retroflex
+            keytool -genkeypair -keystore ks.jks -storepass "$pass" -keypass "$pass" -alias retroflex \
+              -keyalg RSA -keysize 2048 -validity 3650 -dname "CN=Retroflex"
+          fi
+          "$ANDROID_HOME/build-tools/35.0.0/zipalign" -f 4 "$apk" aligned.apk
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" sign --ks ks.jks --ks-pass "pass:$pass" --out "Retroflex-$TAG-android.apk" aligned.apk
+          gh release upload "$TAG" "Retroflex-$TAG-android.apk" --clobber
