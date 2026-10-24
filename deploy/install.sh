@@ -7,7 +7,7 @@ tunnel=$(basename "$creds" .json)
 port=${RETROFLEX_PORT:-7746}
 
 install -d -m 755 /opt/retroflex
-install -d -m 700 /etc/retroflex
+install -d -m 755 /etc/retroflex
 install -m 755 "$bin" /opt/retroflex/retroflex
 install -m 600 "$creds" /etc/retroflex/tunnel.json
 
@@ -30,6 +30,7 @@ ingress:
     service: http://127.0.0.1:$port
   - service: http_status:404
 YML
+chmod 644 /etc/retroflex/cloudflared.yml
 
 here=$(dirname "$0")
 install -m 644 "$here/retroflex-hub.service" "$here/retroflex-tunnel.service" /etc/systemd/system/
