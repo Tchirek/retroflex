@@ -10,3 +10,4 @@ node_modules/
 !.env.example
 .claude/
 *.local.ps1
+nas-station/
