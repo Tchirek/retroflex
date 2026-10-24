@@ -3,6 +3,8 @@ mod proto;
 mod station;
 mod util;
 
+use std::io::IsTerminal;
+
 use clap::{Parser, Subcommand};
 use tracing_subscriber::EnvFilter;
 
@@ -27,6 +29,7 @@ enum Cmd {
 async fn main() -> anyhow::Result<()> {
     tracing_subscriber::fmt()
         .with_env_filter(EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info,lofty=error")))
+        .with_ansi(std::io::stdout().is_terminal())
         .init();
     match Cli::parse().cmd {
         Cmd::Hub(a) => hub::run(a).await,
