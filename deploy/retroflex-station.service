@@ -1,0 +1,23 @@
+# 辻のそば　棚を据えては　夜も鳴る
+[Unit]
+Description=Retroflex station
+After=network-online.target retroflex-hub.service
+Wants=network-online.target
+
+[Service]
+EnvironmentFile=/etc/retroflex/hub.env
+EnvironmentFile=-/etc/retroflex/station.env
+ExecStart=/opt/retroflex/retroflex station --cache /var/lib/retroflex-station -l /srv/retroflex/music
+StateDirectory=retroflex-station
+Restart=always
+RestartSec=3
+DynamicUser=yes
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+MemoryMax=256M
+
+[Install]
+WantedBy=multi-user.target
