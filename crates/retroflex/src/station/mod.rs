@@ -32,6 +32,8 @@ pub struct StationArgs {
     cache: Option<PathBuf>,
     #[arg(long, default_value_t = 30, help = "Minutes between library rescans")]
     rescan: u64,
+    #[arg(long, env = "RETROFLEX_PUBLIC_URL", help = "Hub URL to print in links, if it differs from --hub")]
+    public: Option<String>,
 }
 
 // 駅ひとつ　棚と目録　鍵を持つ
@@ -105,7 +107,8 @@ pub async fn run(a: StationArgs) -> Result<()> {
     let st = Arc::new(Station { name: a.name.clone(), sources, cache, index: RwLock::new(Arc::new(first)) });
 
     let (ws, http) = hub_urls(&a.hub);
-    println!("\n  {http}/#/s/{}/{key}\n", a.name);
+    let shown = a.public.as_deref().map(|p| p.trim_end_matches('/').to_string()).unwrap_or(http);
+    println!("\n  {shown}/#/s/{}/{key}\n", a.name);
 
     let (changed_tx, changed_rx) = watch::channel(0u64);
     let rescanner = st.clone();
