@@ -64,17 +64,17 @@ describe("clock", () => {
   it("trusts the fastest round trip", () => {
     let t = 1000;
     const c = new Clock(() => t);
-    c.sample(900, 5050); // 100ms there and back, server ahead by 4100
+    c.sample(900, 5050);
     expect(c.offset).toBeCloseTo(4100);
     t = 2000;
-    c.sample(1980, 6080); // 20ms, server ahead by 4090: eased toward it
+    c.sample(1980, 6080);
     expect(c.rtt).toBe(20);
     expect(c.offset).toBeCloseTo(4100 - 10 * 0.25);
     t = 3000;
-    c.sample(2600, 7500); // a slow sample does not win
+    c.sample(2600, 7500);
     expect(c.rtt).toBe(20);
     t = 4000;
-    c.sample(3990, 8395); // 10ms, a 300ms jump is taken at once
+    c.sample(3990, 8395);
     expect(c.offset).toBeCloseTo(4400);
   });
 });
