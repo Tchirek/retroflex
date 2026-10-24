@@ -1,6 +1,7 @@
 [workspace]
 resolver = "3"
 members = ["crates/retroflex"]
+exclude = ["app/src-tauri"]
 
 [workspace.package]
 edition = "2024"
