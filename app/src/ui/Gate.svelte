@@ -17,7 +17,7 @@
 </script>
 
 <div class="gate">
-  <div class="mark"><Icon name="hook" size={54} stroke={2.4} /></div>
+  <img class="mark" src="/icon.svg" alt="" />
   <label class="field glass" class:shake>
     <Icon name="link" size={18} />
     <input
@@ -44,16 +44,9 @@
     padding: 24px;
   }
   .mark {
-    display: grid;
-    place-items: center;
-    width: 112px;
-    height: 112px;
-    border-radius: 30px;
-    color: #fff;
-    background: linear-gradient(140deg, #ff5f8f 0%, #ff9a5a 45%, #7b6cff 100%);
-    box-shadow:
-      0 30px 80px rgba(255, 95, 143, 0.28),
-      inset 0 1px 0 rgba(255, 255, 255, 0.35);
+    width: 132px;
+    height: 132px;
+    filter: drop-shadow(0 30px 60px rgba(0, 0, 0, 0.6));
   }
   .field {
     display: flex;
