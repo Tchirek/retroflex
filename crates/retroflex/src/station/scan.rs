@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -164,12 +164,15 @@ pub async fn scan(name: &str, sources: &[Arc<Source>], cache: &Path) -> Result<I
     let mut items = HashMap::new();
     let mut covers = HashMap::new();
 
+    // 先の棚に　ある歌ならば　後は措く
+    let mut seen: HashSet<String> = HashSet::new();
     for (si, src) in sources.iter().enumerate() {
         let label = src.label();
         let entries = {
             let s = src.clone();
             tokio::task::spawn_blocking(move || s.list()).await??
         };
+        let mine: Vec<String> = entries.iter().map(|e| e.rel.clone()).collect();
         let mut dirs: HashMap<&str, Vec<&Entry>> = HashMap::new();
         for e in &entries {
             dirs.entry(split(&e.rel).0).or_default().push(e);
@@ -178,6 +181,9 @@ pub async fn scan(name: &str, sources: &[Arc<Source>], cache: &Path) -> Result<I
         let mut jobs = Vec::new();
         for e in &entries {
             let Some(&(_, mime)) = AUDIO.iter().find(|(x, _)| *x == ext(&e.rel)) else { continue };
+            if seen.contains(&e.rel) {
+                continue;
+            }
             let (dir, file) = split(&e.rel);
             let siblings = &dirs[dir];
             let side_cover = COVER_NAMES.iter().find_map(|c| {
@@ -255,6 +261,7 @@ pub async fn scan(name: &str, sources: &[Arc<Source>], cache: &Path) -> Result<I
             items.insert(id.clone(), Item { src: si, rel: entry.rel.clone(), size: entry.size, mime: mime.to_string(), lyrics });
             fresh.insert(id, probed);
         }
+        seen.extend(mine);
     }
 
     gather_various(&mut tracks, &items);

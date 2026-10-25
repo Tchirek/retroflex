@@ -127,7 +127,12 @@ impl Source {
 
     // 聴く人へ　倉から直に　届く道
     pub fn direct_url(&self, rel: &str) -> Option<String> {
-        matches!(self, Source::Bucket { .. }).then(|| self.signed("GET", rel, DIRECT_SECS))
+        match self {
+            Source::Bucket { .. } => Some(self.signed("GET", rel, DIRECT_SECS)),
+            // 公の　網の棚なら　直に汲め
+            Source::Alist { base, .. } if base.starts_with("https://") => Some(self.alist_url(rel)),
+            _ => None,
+        }
     }
 
     // 倉へ積む　重さを告げて　ひと運び

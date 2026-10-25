@@ -83,7 +83,7 @@ fn answer(st: &Station, op: &Op, range: Option<&str>) -> Result<Reply> {
                 if let Some(url) = worker_url(st, source, &item.rel) {
                     return Ok(Reply::redirect(url));
                 }
-                if st.direct {
+                if st.direct || !source.is_bucket() {
                     if let Some(url) = source.direct_url(&item.rel) {
                         return Ok(Reply::redirect(url));
                     }
