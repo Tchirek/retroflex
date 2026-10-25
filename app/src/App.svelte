@@ -7,7 +7,7 @@
   import { isApp, openExternal } from "./lib/links";
   import { loadKept } from "./lib/offline.svelte";
   import { checkUpdate, type Update } from "./lib/update";
-  import { openRoom, openStations, snap, Station, type Snap, type Track } from "./lib/api";
+  import { matchRoom, openRoom, openStations, redeemInvite, snap, Station, type Snap, type Track } from "./lib/api";
   import { blurs } from "./lib/art.svelte";
   import { derive, newSecret } from "./lib/crypto";
   import { frame, startFrames } from "./lib/frame.svelte";
@@ -15,7 +15,7 @@
   import { parseLrc, tongue, type Lyrics as LyricData } from "./lib/lrc";
   import { loadProfile } from "./lib/names";
   import { adoptPlaylist } from "./lib/playlists.svelte";
-  import { sendLink } from "./lib/share";
+  import { remember, taste } from "./lib/taste";
   import { Player } from "./lib/player.svelte";
   import { Room, type Mode } from "./lib/room.svelte";
   import Backdrop from "./ui/Backdrop.svelte";
@@ -25,6 +25,7 @@
   import Gate from "./ui/Gate.svelte";
   import Icon from "./ui/Icon.svelte";
   import Library from "./ui/Library.svelte";
+  import Lounge from "./ui/Lounge.svelte";
   import Lyrics from "./ui/Lyrics.svelte";
   import Members from "./ui/Members.svelte";
   import Progress from "./ui/Progress.svelte";
@@ -219,7 +220,10 @@
 
   // 散りし部屋　跡には戸口　ひとつだけ
   $effect(() => {
-    if (room?.status === "gone") go({ kind: "none" });
+    const s = room?.status;
+    if (s !== "gone" && s !== "full") return;
+    const b = browsing;
+    go(b ? { kind: "station", hub: b.hub, station: b.station, key: b.key } : { kind: "none" });
   });
 
   $effect(() => {
@@ -231,8 +235,10 @@
     target = t;
   }
 
-  function onlink(text: string): boolean {
+  function onlink(text: string): boolean | Promise<boolean> {
     const t = parseTarget(text, homeHub());
+    const code = text.toUpperCase().replace(/[\s-]/g, "");
+    if (t.kind === "none" && /^[A-Z0-9]{6}$/.test(code)) return joinCode(code);
     if (t.kind === "none") return false;
     if (tauri) {
       try {
@@ -305,10 +311,38 @@
   }
 
   // 合言葉　紙に写して　手渡しに
-  async function share(): Promise<boolean> {
-    if (!room || target.kind !== "room") return false;
-    return sendLink(roomLink(target.hub, room.id, room.secret));
+  const link = $derived(room && target.kind === "room" ? roomLink(target.hub, room.id, room.secret) : "");
+
+  // 広間には　耳の合う人　待つ席を
+  async function matchmake(): Promise<boolean> {
+    const st = station;
+    if (!st) return false;
+    const found = await matchRoom(st.hub, st.name, taste(room?.queue.map((q) => q.artist)));
+    if (found) {
+      go({ kind: "room", hub: st.hub, room: found.id, secret: found.secret });
+      return true;
+    }
+    const secret = newSecret();
+    try {
+      const id = await openRoom(st.hub, st.name, "", derive(secret).ticket, secret);
+      go({ kind: "room", hub: st.hub, room: id, secret });
+      return true;
+    } catch {
+      return false;
+    }
   }
+
+  async function joinCode(code: string): Promise<boolean> {
+    const hub = station?.hub ?? homeHub();
+    const seat = await redeemInvite(hub, code);
+    if (!seat) return false;
+    go({ kind: "room", hub, room: seat.id, secret: seat.secret });
+    return true;
+  }
+
+  $effect(() => {
+    if (current?.artist) remember(current.artist);
+  });
 
   function keys(e: KeyboardEvent) {
     const el = e.target as HTMLElement;
@@ -374,13 +408,21 @@
   }
 
   const shown = $derived<Panel>(wide ? panel : view === "now" ? "lyrics" : view);
+  // 広間では　止める代わりに　耳を塞ぐ
+  const open = $derived(!!room?.public);
   const transport = $derived({
     playing: room?.playing ?? false,
     disabled: !current,
+    open,
+    muted: player?.muted ?? false,
+    skips: room?.skips ?? 0,
+    need: Math.floor(Object.keys(room?.members ?? {}).length / 2) + 1,
+    voted: !!room && room.voted === room.cur,
     onplay: () => (haptic(), player?.blocked ? player.unlock() : room?.play()),
     onpause: () => (haptic(), room?.pause()),
     onnext: () => (haptic(), room?.next()),
     onprev: () => (haptic(), room?.prev()),
+    onmute: () => (haptic(), player && (player.muted = !player.muted)),
   });
 </script>
 
@@ -397,10 +439,10 @@
         <div class="title ellipsis">{current?.title ?? ""}</div>
         <div class="artist ellipsis">{current?.artist ?? ""}</div>
       </div>
-      <Progress time={pos} duration={current?.duration ?? 0} onseek={(t) => room?.seek(t)} />
+      <Progress time={pos} duration={current?.duration ?? 0} onseek={(t) => room?.seek(t)} locked={open} />
       <Transport {...transport} />
       <div class="foot">
-        {#if room}<Members {room} onshare={share} />{:else}<span></span>{/if}
+        {#if room}<Members {room} {link} />{:else}<span></span>{/if}
         {#if player}<div class="vol"><Volume value={player.volume} onchange={(v) => player?.setVolume(v)} /></div>{/if}
       </div>
       {#if room}<div class="whispers">{#if shown !== "chat"}<Whisper {room} />{/if}</div>{/if}
@@ -419,7 +461,7 @@
           <div class="title ellipsis">{current?.title ?? ""}</div>
           <div class="artist ellipsis">{current?.artist ?? ""}</div>
         </div>
-        {#if room}<Members {room} onshare={share} />{/if}
+        {#if room}<Members {room} {link} />{/if}
       </div>
     {:else if view === "lyrics"}
       <header class="mini">
@@ -428,7 +470,7 @@
           <div class="title ellipsis">{current?.title ?? ""}</div>
           <div class="artist ellipsis">{current?.artist ?? ""}</div>
         </div>
-        {#if room}<Members {room} onshare={share} />{/if}
+        {#if room}<Members {room} {link} />{/if}
       </header>
       <section class="pane" in:fly={{ x: slide * 32, duration: 260, opacity: 0 }}>
         {@render pane(view)}
@@ -441,7 +483,7 @@
     {/if}
     {#if view === "now" || view === "lyrics"}
       {#if room}<div class="whispers"><Whisper {room} max={2} /></div>{/if}
-      <Progress time={pos} duration={current?.duration ?? 0} onseek={(t) => room?.seek(t)} />
+      <Progress time={pos} duration={current?.duration ?? 0} onseek={(t) => room?.seek(t)} locked={open} />
       <Transport {...transport} small={view !== "now"} />
     {:else if view !== "chat"}
       {@render dock()}
@@ -461,15 +503,21 @@
         <span class="artist ellipsis">{current?.artist ?? ""}</span>
       </span>
     </button>
-    <button
-      class="icon-btn"
-      aria-label={transport.playing ? "Pause" : "Play"}
-      disabled={transport.disabled}
-      onclick={transport.playing ? transport.onpause : transport.onplay}
-    >
-      <Icon name={transport.playing ? "pause" : "play"} size={24} />
-    </button>
-    <button class="icon-btn" aria-label="Next" disabled={transport.disabled} onclick={transport.onnext}>
+    {#if open}
+      <button class="icon-btn" aria-label={transport.muted ? "Unmute" : "Mute"} disabled={transport.disabled} onclick={transport.onmute}>
+        <Icon name={transport.muted ? "mute" : "volume"} size={22} />
+      </button>
+    {:else}
+      <button
+        class="icon-btn"
+        aria-label={transport.playing ? "Pause" : "Play"}
+        disabled={transport.disabled}
+        onclick={transport.playing ? transport.onpause : transport.onplay}
+      >
+        <Icon name={transport.playing ? "pause" : "play"} size={24} />
+      </button>
+    {/if}
+    <button class="icon-btn" class:on={open && transport.voted} aria-label="Next" disabled={transport.disabled} onclick={transport.onnext}>
       <Icon name="next" size={22} />
     </button>
     <span class="line" style:transform="scaleX({current?.duration ? Math.min(1, pos / current.duration) : 0})"></span>
@@ -489,7 +537,11 @@
         playing={room?.playing ?? false}
         onplaypause={() => (room?.playing ? room.pause() : transport.onplay())}
         {focus}
-      />
+      >
+        {#snippet lounge()}
+          {#if browsing?.key === ""}<Lounge onmatch={matchmake} oncode={joinCode} />{/if}
+        {/snippet}
+      </Library>
     </div>
   {:else if which === "chat" && room}
     <div class="panel"><Chat {room} /></div>

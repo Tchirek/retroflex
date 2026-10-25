@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { untrack } from "svelte";
+  import { untrack, type Snippet } from "svelte";
   import { SvelteSet } from "svelte/reactivity";
   import { fade, fly } from "svelte/transition";
   import { snap, type Snap, type Station, type Track } from "../lib/api";
@@ -34,6 +34,7 @@
     playing,
     onplaypause,
     focus = null,
+    lounge,
   }: {
     tracks: Track[];
     station: Station | null;
@@ -44,6 +45,7 @@
     playing: boolean;
     onplaypause: () => void;
     focus?: Sheet | null;
+    lounge?: Snippet;
   } = $props();
 
   const ids = (list: Track[]) => list.map((t) => t.id);
@@ -188,6 +190,7 @@
       <input bind:value={query} aria-label="Search" spellcheck="false" />
       {#if query}<button class="clear" aria-label="Clear" onclick={() => (query = "")}><Icon name="close" size={13} /></button>{/if}
     </label>
+    {@render lounge?.()}
     <div class="seg" style:--i={SHELVES.indexOf(mode)}>
       <span class="knob"></span>
       <button class:on={mode === "albums"} aria-label="Albums" onclick={() => shelve("albums")}><Icon name="library" size={18} /></button>

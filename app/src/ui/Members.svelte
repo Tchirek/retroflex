@@ -5,21 +5,32 @@
   import { saveProfile } from "../lib/names";
   import type { Room } from "../lib/room.svelte";
   import Icon from "./Icon.svelte";
+  import Invite from "./Invite.svelte";
 
-  let { room, onshare }: { room: Room; onshare: () => Promise<boolean> } = $props();
+  let { room, link }: { room: Room; link: string } = $props();
 
   const HUES = [350, 22, 45, 140, 178, 205, 250, 290];
   let open = $state<number | null>(null);
   let below = $state(false);
   let right = $state(false);
   let draft = $state("");
-  let copied = $state(false);
+  let inviting = $state(false);
   let box: HTMLDivElement;
 
   backable(
     () => open !== null,
     () => (commit(), (open = null)),
   );
+  backable(
+    () => inviting,
+    () => (inviting = false),
+  );
+
+  function place() {
+    const r = box.getBoundingClientRect();
+    below = r.top < 300;
+    right = r.left + 220 > innerWidth - 12;
+  }
 
   const people = $derived(Object.values(room.members).sort((a, b) => (a.id === room.me ? 1 : b.id === room.me ? -1 : a.id - b.id)));
   const shown = $derived(open === null ? null : room.members[open]);
@@ -31,9 +42,8 @@
   // 顔に触れ　名札を小さく　差し出しぬ
   function peek(id: number) {
     if (open === id) return (open = null);
-    const r = box.getBoundingClientRect();
-    below = r.top < 220;
-    right = r.left + 220 > innerWidth - 12;
+    place();
+    inviting = false;
     open = id;
     if (id === room.me) draft = room.profile.nick;
     haptic();
@@ -57,18 +67,21 @@
   }
 
   function away(e: PointerEvent) {
-    if (open !== null && !box.contains(e.target as Node)) {
+    if (box.contains(e.target as Node)) return;
+    if (open !== null) {
       commit();
       open = null;
     }
+    inviting = false;
   }
 
-  async function share() {
-    if (await onshare()) {
-      copied = true;
-      haptic();
-      setTimeout(() => (copied = false), 1600);
-    }
+  // 招く札　開けば顔の　札は閉ず
+  function invite() {
+    haptic();
+    if (inviting) return (inviting = false);
+    place();
+    open = null;
+    inviting = true;
   }
 </script>
 
@@ -90,9 +103,15 @@
       </button>
     {/each}
   </div>
-  <button class="icon-btn" class:on={copied} aria-label="Copy room link" onclick={share}>
-    <Icon name={copied ? "check" : "link"} size={20} />
+  <button class="icon-btn" class:on={inviting} aria-label="Invite" onclick={invite}>
+    <Icon name="link" size={20} />
   </button>
+
+  {#if inviting}
+    <div class="card invite" class:below class:right transition:fade={{ duration: 140 }}>
+      <Invite {room} {link} />
+    </div>
+  {/if}
 
   {#if shown}
     <!-- 名札には　名と色ばかり　声低く -->
@@ -201,6 +220,11 @@
     backdrop-filter: blur(30px) saturate(160%);
     -webkit-backdrop-filter: blur(30px) saturate(160%);
     box-shadow: 0 18px 50px rgba(0, 0, 0, 0.45);
+  }
+  .card.invite {
+    width: auto;
+    align-items: center;
+    padding: 16px 16px 10px;
   }
   .card.below {
     bottom: auto;

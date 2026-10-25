@@ -1,15 +1,15 @@
 <script lang="ts">
   import Icon from "./Icon.svelte";
 
-  let { onlink }: { onlink: (text: string) => boolean } = $props();
+  let { onlink }: { onlink: (text: string) => boolean | Promise<boolean> } = $props();
 
   let value = $state("");
   let shake = $state(false);
 
   // 紙切れの　道を貼れば　戸が開く
-  function submit() {
+  async function submit() {
     if (!value.trim()) return;
-    if (!onlink(value)) {
+    if (!(await onlink(value))) {
       shake = true;
       setTimeout(() => (shake = false), 450);
     }
