@@ -7,7 +7,8 @@ Wants=network-online.target
 [Service]
 EnvironmentFile=/etc/retroflex/hub.env
 EnvironmentFile=-/etc/retroflex/station.env
-ExecStart=/opt/retroflex/retroflex station --cache /var/lib/retroflex-station -l /srv/retroflex/music
+EnvironmentFile=-/etc/retroflex/r2.env
+ExecStart=/opt/retroflex/retroflex station --cache /var/lib/retroflex-station
 StateDirectory=retroflex-station
 Restart=always
 RestartSec=3
