@@ -1,3 +1,4 @@
+import { derive } from "./crypto";
 import { isApp } from "./links";
 import type { Target } from "./link";
 
@@ -11,8 +12,8 @@ export function fromDeepLink(raw: string): string | null {
     if (u.protocol !== `${SCHEME}:`) return null;
     const hub = u.searchParams.get("hub");
     const parts = `${u.host}${u.pathname}`.split("/").filter(Boolean);
-    if (!hub || parts.length !== 3 || parts[0] !== "r") return null;
-    return `${hub}/#/r/${parts[1]}/${parts[2]}`;
+    if (!hub || parts.length !== 3 || (parts[0] !== "r" && parts[0] !== "l")) return null;
+    return `${hub}/#/${parts[0]}/${parts[1]}/${parts[2]}`;
   } catch {
     return null;
   }
@@ -36,17 +37,19 @@ export async function listenDeepLinks(onlink: (text: string) => void): Promise<v
 
 // 生きた部屋　ならば手元の　窓へ渡す
 export async function offerApp(target: Target): Promise<void> {
-  if (isApp || target.kind !== "room") return;
+  if (isApp || (target.kind !== "room" && target.kind !== "list")) return;
   const ua = navigator.userAgent;
   if (/iPhone|iPad|iPod/i.test(ua) || new URLSearchParams(location.search).has("web")) return;
-  try {
-    const { derive } = await import("./crypto");
-    const r = await fetch(`${target.hub}/api/rooms/${target.room}?t=${encodeURIComponent(derive(target.secret).ticket)}`);
-    if (r.status !== 204) return;
-  } catch {
-    return;
+  if (target.kind === "room") {
+    try {
+      const r = await fetch(`${target.hub}/api/rooms/${target.room}?t=${encodeURIComponent(derive(target.secret).ticket)}`);
+      if (r.status !== 204) return;
+    } catch {
+      return;
+    }
   }
-  const path = `r/${target.room}/${target.secret}?hub=${encodeURIComponent(target.hub)}`;
+  const tail = target.kind === "room" ? `r/${target.room}/${target.secret}` : location.hash.slice(2);
+  const path = `${tail}?hub=${encodeURIComponent(target.hub)}`;
   if (/Android/i.test(ua)) {
     const back = `${location.origin}${location.pathname}?web=1${location.hash}`;
     location.href = `intent://${path}#Intent;scheme=${SCHEME};package=${PACKAGE};S.browser_fallback_url=${encodeURIComponent(back)};end`;

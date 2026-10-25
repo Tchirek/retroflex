@@ -1,18 +1,21 @@
 <script lang="ts">
   import { flushSync, onMount } from "svelte";
   import { fade, fly } from "svelte/transition";
+  import { backable } from "./lib/back.svelte";
   import { haptic } from "./lib/haptics";
   import { listenDeepLinks, offerApp } from "./lib/deeplink";
   import { isApp, openExternal } from "./lib/links";
   import { loadKept } from "./lib/offline.svelte";
   import { checkUpdate, type Update } from "./lib/update";
-  import { openRoom, openStations, Station, type Snap, type Track } from "./lib/api";
+  import { openRoom, openStations, snap, Station, type Snap, type Track } from "./lib/api";
   import { blurs } from "./lib/art.svelte";
   import { derive, newSecret } from "./lib/crypto";
   import { frame, startFrames } from "./lib/frame.svelte";
   import { hash, parseTarget, roomLink, type Target } from "./lib/link";
   import { parseLrc, type Lyrics as LyricData } from "./lib/lrc";
   import { loadProfile } from "./lib/names";
+  import { adoptPlaylist } from "./lib/playlists.svelte";
+  import { sendLink } from "./lib/share";
   import { Player } from "./lib/player.svelte";
   import { Room, type Mode } from "./lib/room.svelte";
   import Art from "./ui/Art.svelte";
@@ -47,7 +50,11 @@
     }
   }
 
-  const initial = parseTarget(location.hash, homeHub());
+  // 歌の束　届けば駅の　棚で開く
+  const first = parseTarget(location.hash, homeHub());
+  const initial: Target = first.kind === "list" ? { kind: "station", hub: first.hub, station: first.station, key: "" } : first;
+  let incoming = $state<{ station: string; ids: string[] } | null>(first.kind === "list" ? { station: first.station, ids: first.ids } : null);
+  let focus = $state<{ id?: string; at: number; tracks: Snap[] } | null>(null);
   let target = $state<Target>(initial);
   let room = $state<Room | null>(null);
   let player = $state<Player | null>(null);
@@ -102,15 +109,14 @@
     wide = mq.matches;
     mq.onchange = () => (wide = mq.matches);
     const onhash = () => {
-      target = parseTarget(location.hash, homeHub());
-      if (target.kind === "station") browse();
+      land(parseTarget(location.hash, homeHub()));
     };
     if (initial.kind === "none") probe();
     if (isApp) {
       loadKept();
       listenDeepLinks((text) => onlink(text));
       checkUpdate(__APP_VERSION__).then((u) => (update = u));
-    } else offerApp(initial);
+    } else offerApp(first);
     addEventListener("hashchange", onhash);
     addEventListener("keydown", keys);
     return () => {
@@ -223,10 +229,32 @@
         localStorage.setItem("retroflex.hub", t.hub);
       } catch {}
     }
-    if (t.kind === "station") browse();
-    go(t);
+    land(t);
     return true;
   }
+
+  // 行き先が　束なら棚を　開くだけ
+  function land(t: Target) {
+    if (t.kind === "list") {
+      incoming = { station: t.station, ids: t.ids };
+      browse();
+      if (room && target.kind === "room" && target.hub === t.hub && room.station === t.station) return;
+      return go({ kind: "station", hub: t.hub, station: t.station, key: "" });
+    }
+    if (t.kind === "station") browse();
+    if (t.kind !== "none" || target.kind !== "none") go(t);
+  }
+
+  $effect(() => {
+    const want = incoming;
+    const st = station;
+    if (!want || !st || st.name !== want.station || !tracks.length) return;
+    const byId = new Map(tracks.map((t) => [t.id, t]));
+    const list = want.ids.flatMap((id) => (byId.has(id) ? [snap(byId.get(id)!)] : []));
+    incoming = null;
+    if (!list.length) return;
+    focus = isApp ? adoptPlaylist(st.name, list) : { at: Date.now(), tracks: list };
+  });
 
   // 初めの歌　選べば部屋が　生まれけり
   async function add(list: Snap[], mode: Mode) {
@@ -269,26 +297,7 @@
   // 合言葉　紙に写して　手渡しに
   async function share(): Promise<boolean> {
     if (!room || target.kind !== "room") return false;
-    const link = roomLink(target.hub, room.id, room.secret);
-    if (navigator.share && matchMedia("(pointer: coarse)").matches) {
-      try {
-        await navigator.share({ url: link });
-        return true;
-      } catch {
-        return false;
-      }
-    }
-    try {
-      await navigator.clipboard.writeText(link);
-      return true;
-    } catch {
-      const area = Object.assign(document.createElement("textarea"), { value: link });
-      document.body.append(area);
-      area.select();
-      const ok = document.execCommand("copy");
-      area.remove();
-      return ok;
-    }
+    return sendLink(roomLink(target.hub, room.id, room.secret));
   }
 
   function keys(e: KeyboardEvent) {
@@ -327,6 +336,12 @@
       });
     } else view = next;
   }
+
+  // 戻る手は　まず大きなる　盤の前へ
+  backable(
+    () => !wide && !!room && view !== "now",
+    () => turn("now"),
+  );
 
   function tab(p: Panel) {
     if (wide) {
@@ -467,6 +482,7 @@
         nowId={current?.id}
         playing={room?.playing ?? false}
         onplaypause={() => (room?.playing ? room.pause() : transport.onplay())}
+        {focus}
       />
     </div>
   {:else if which === "chat" && room}
