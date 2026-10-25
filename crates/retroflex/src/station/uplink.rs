@@ -44,7 +44,7 @@ async fn session(st: &Arc<Station>, hub: &str, token: &str, key: &str, changed: 
     let url = format!("{}/api/uplink", hub.trim_end_matches('/'));
     let (ws, _) = tokio_tungstenite::connect_async(url.as_str()).await?;
     let (mut sink, mut stream) = ws.split();
-    let hello = Up::Hello { name: st.name.clone(), token: token.into(), key: key.into(), version: PROTOCOL };
+    let hello = Up::Hello { name: st.name.clone(), token: token.into(), key: key.into(), version: PROTOCOL, open: st.open };
     sink.send(text(&hello)).await?;
 
     // 名を告げて　返る言葉を　待つ一拍

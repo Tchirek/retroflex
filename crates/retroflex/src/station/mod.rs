@@ -34,11 +34,14 @@ pub struct StationArgs {
     rescan: u64,
     #[arg(long, env = "RETROFLEX_PUBLIC_URL", help = "Hub URL to print in links, if it differs from --hub")]
     public: Option<String>,
+    #[arg(long, env = "RETROFLEX_OPEN", help = "Let anyone on the hub browse this library and open rooms")]
+    open: bool,
 }
 
 // 駅ひとつ　棚と目録　鍵を持つ
 pub struct Station {
     pub name: String,
+    pub open: bool,
     pub sources: Vec<Arc<Source>>,
     pub cache: PathBuf,
     index: RwLock<Arc<Index>>,
@@ -104,7 +107,7 @@ pub async fn run(a: StationArgs) -> Result<()> {
     tracing::info!("scanning {} source(s)", sources.len());
     let first = scan::scan(&a.name, &sources, &cache).await?;
     tracing::info!("{} tracks, {} covers", first.items.len(), first.covers.len());
-    let st = Arc::new(Station { name: a.name.clone(), sources, cache, index: RwLock::new(Arc::new(first)) });
+    let st = Arc::new(Station { name: a.name.clone(), open: a.open, sources, cache, index: RwLock::new(Arc::new(first)) });
 
     let (ws, http) = hub_urls(&a.hub);
     let shown = a.public.as_deref().map(|p| p.trim_end_matches('/').to_string()).unwrap_or(http);
