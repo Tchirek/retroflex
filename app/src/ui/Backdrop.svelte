@@ -76,13 +76,6 @@
     let raf = 0;
     let last = 0;
 
-    const size = () => {
-      canvas.width = W;
-      canvas.height = Math.max(24, Math.round((W * innerHeight) / Math.max(1, innerWidth)));
-    };
-    size();
-    addEventListener("resize", size);
-
     // 回りつつ　溶けあう色の　渦を描く
     const draw = (t: number) => {
       raf = requestAnimationFrame(draw);
@@ -120,13 +113,12 @@
     raf = requestAnimationFrame(draw);
     return () => {
       cancelAnimationFrame(raf);
-      removeEventListener("resize", size);
     };
   });
 </script>
 
 <div class="backdrop" aria-hidden="true">
-  <canvas bind:this={canvas} class:tainted></canvas>
+  <canvas bind:this={canvas} width={W} height={W} class:tainted></canvas>
   <div class="veil"></div>
   <div class="grain"></div>
 </div>
@@ -139,11 +131,13 @@
     background: #14141a;
     z-index: 0;
   }
+  /* 窓変えど　絵は一枚の　まま伸びる */
   canvas {
     position: absolute;
     inset: 0;
     width: 100%;
     height: 100%;
+    object-fit: cover;
     transform: scale(1.06);
   }
   canvas.tainted {
