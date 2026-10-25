@@ -218,11 +218,11 @@
     0%,
     100% {
       transform: scale(0.7);
-      opacity: 1;
+      opacity: 0.45;
     }
     50% {
-      transform: scale(0.48);
-      opacity: 0.45;
+      transform: scale(1.05);
+      opacity: 1;
     }
   }
   .tail {

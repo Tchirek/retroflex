@@ -116,7 +116,7 @@
     cursor: pointer;
   }
   .face:hover {
-    transform: translateY(-2px);
+    transform: translateY(-2px) scale(1.08);
     z-index: 1;
   }
   .face.typing::after {
@@ -129,11 +129,11 @@
   }
   @keyframes pulse {
     0% {
-      transform: scale(1);
+      transform: scale(0.9);
       opacity: 1;
     }
     100% {
-      transform: scale(0.78);
+      transform: scale(1.35);
       opacity: 0;
     }
   }
