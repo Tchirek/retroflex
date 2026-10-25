@@ -18,6 +18,8 @@ pub struct Pass {
     thumb: Option<u8>,
     #[serde(default)]
     relay: Option<u8>,
+    #[serde(default)]
+    dl: Option<u8>,
 }
 
 // 合鍵か　部屋の札かを　改める
@@ -83,7 +85,8 @@ pub async fn audio(
 ) -> Response {
     match authorize(&hub, &station, p.k.as_deref()) {
         Ok(link) => {
-            let op = Op::Audio { track, relay: p.relay.unwrap_or(0) == 1 };
+            let download = p.dl.unwrap_or(0) == 1;
+            let op = Op::Audio { track, relay: download || p.relay.unwrap_or(0) == 1, download };
             relay(link, op, range(&headers), "private, max-age=86400").await
         }
         Err(code) => code.into_response(),

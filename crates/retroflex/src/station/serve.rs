@@ -76,7 +76,7 @@ fn answer(st: &Station, op: &Op, range: Option<&str>) -> Result<Reply> {
     let index = st.index();
     match op {
         Op::Library => Ok(Reply::bytes("application/json", index.library.to_vec())),
-        Op::Audio { track, relay } => {
+        Op::Audio { track, relay, download } => {
             let Some(item) = index.items.get(track) else { return Ok(Reply::empty(404)) };
             let source = &st.sources[item.src];
             if !relay {
@@ -119,6 +119,9 @@ fn answer(st: &Station, op: &Op, range: Option<&str>) -> Result<Reply> {
             if status == 206 {
                 headers.push(("content-range".into(), format!("bytes {start}-{end}/{size}")));
             }
+            if *download {
+                headers.push(("content-disposition".into(), attachment(&item.rel)));
+            }
             Ok(Reply { status, headers, body })
         }
         Op::Cover { cover, thumb } => {
@@ -135,6 +138,14 @@ fn answer(st: &Station, op: &Op, range: Option<&str>) -> Result<Reply> {
             Ok(Reply::bytes("text/plain; charset=utf-8", text.into_bytes()))
         }
     }
+}
+
+// 持ち帰る　札には元の　名を書きて
+fn attachment(rel: &str) -> String {
+    let name = rel.rsplit('/').next().unwrap_or(rel);
+    let plain: String = name.chars().map(|c| if c.is_ascii_graphic() && c != '"' && c != '\\' { c } else { '_' }).collect();
+    let fancy = percent_encoding::utf8_percent_encode(name, percent_encoding::NON_ALPHANUMERIC).to_string();
+    format!("attachment; filename=\"{plain}\"; filename*=UTF-8''{fancy}")
 }
 
 // 番人へ　期限と印を　添えた道
@@ -252,6 +263,16 @@ mod tests {
             "8f4d78b85aa7db4ffd13c2b8042d7af09056bab8ab4e53ca916c3dbe1d10227a"
         );
         assert_eq!(encode_path("kksk/Tom & Jerry/01 x.m4a"), "kksk/Tom%20%26%20Jerry/01%20x.m4a");
+    }
+
+
+    // 持ち帰る　名は元のまま　崩さずに
+    #[test]
+    fn attachment_names() {
+        assert_eq!(
+            attachment("Compilations/Expressions/09 Plastic Love.m4a"),
+            "attachment; filename=\"09_Plastic_Love.m4a\"; filename*=UTF-8''09%20Plastic%20Love%2Em4a"
+        );
     }
 
 }
