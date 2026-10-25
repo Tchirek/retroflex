@@ -1,25 +1,37 @@
 const tauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
-const mobile = typeof navigator !== "undefined" && /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+const ua = typeof navigator !== "undefined" ? navigator.userAgent : "";
+const android = /Android/i.test(ua);
+const ios = /iPhone|iPad|iPod/i.test(ua) || (/Macintosh/.test(ua) && typeof navigator !== "undefined" && navigator.maxTouchPoints > 1);
 
-type Impact = "light" | "medium" | "rigid" | "soft";
-let native: ((style: Impact) => Promise<void>) | null | undefined;
+type Weight = "light" | "medium";
+let plugin: Promise<typeof import("@tauri-apps/plugin-haptics") | null> | null = null;
+
+// 林檎窓　小さき鍵の　手応えを
+function flick(): void {
+  const label = document.createElement("label");
+  label.ariaHidden = "true";
+  label.style.display = "none";
+  const input = document.createElement("input");
+  input.type = "checkbox";
+  input.setAttribute("switch", "");
+  label.append(input);
+  document.head.append(label);
+  label.click();
+  label.remove();
+}
 
 // 指先に　かすかな鼓動　返しけり
-export function haptic(style: Impact = "light"): void {
-  if (!mobile) return;
+export function haptic(weight: Weight = "light"): void {
+  if (!android && !ios) return;
   if (tauri) {
-    if (native === undefined) {
-      native = null;
-      import("@tauri-apps/plugin-haptics")
-        .then((m) => {
-          native = (s) => m.impactFeedback(s).then(() => {});
-          native(style).catch(() => {});
-        })
-        .catch(() => {});
-      return;
-    }
-    native?.(style).catch(() => {});
+    plugin ??= import("@tauri-apps/plugin-haptics").catch(() => null);
+    plugin.then((m) => {
+      if (!m) return;
+      const done = android ? m.vibrate(weight === "light" ? 12 : 24) : m.impactFeedback(weight);
+      done.catch(() => {});
+    });
     return;
   }
-  navigator.vibrate?.(style === "light" ? 8 : 14);
+  if (ios) return flick();
+  navigator.vibrate?.(weight === "light" ? 10 : 20);
 }
