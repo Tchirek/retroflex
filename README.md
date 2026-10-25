@@ -122,6 +122,12 @@ RETROFLEX_HUB_TOKEN=change-me ./target/release/retroflex station \
 
 The station prints a station link. Open it, choose something, and a room is
 created; the link icon copies the room link for whoever you want beside you.
+Start the station with `--open` and the hub's front page becomes the library
+itself: anyone who visits can pick a song and get a room of their own.
+
+When a queue runs dry and nobody has added anything, the hub draws three random
+tracks from the library and keeps playing. They are marked in the queue and can
+be removed like any other track; removing them does not summon more.
 
 | flag / env | used by | meaning |
 | --- | --- | --- |
@@ -133,6 +139,8 @@ created; the link icon copies the room link for whoever you want beside you.
 | `--alist-token` / `RETROFLEX_ALIST_TOKEN` | station | for private AList folders |
 | `--cache` / `RETROFLEX_CACHE` | station | tags, covers, thumbnails and the station key |
 | `--rescan` | station | minutes between rescans, default 30 |
+| `--open` / `RETROFLEX_OPEN` | station | let any visitor of the hub browse and open rooms, no key needed |
+| `--public` / `RETROFLEX_PUBLIC_URL` | station | hub URL to print in links when `--hub` points at localhost |
 
 Formats are played by the platform's own decoder, so anything the browser or
 webview can play works: MP3, AAC/M4A, FLAC, Ogg Vorbis/Opus, WAV, WebM. Lyrics
@@ -211,6 +219,7 @@ This design started from a more maximal proposal. What survived, and why:
 | PLL-style resampling instead of hard seeks | kept, as `playbackRate` nudging | same idea, using the platform's own resampler |
 | Live keystroke mode | kept | it is the best part |
 | Leaderless shared queue | kept | everyone in a room has the same controls |
+| Tiny blurred placeholders for covers | added | images resolve from a 1 KB blur instead of popping in |
 | BLAKE3 | kept, for IDs and key hashes | streaming Merkle verification is unnecessary over TLS from your own station |
 | Iroh / QUIC hole punching | left out | browsers cannot open raw UDP, so web clients would need a relay anyway; one outbound WebSocket per station is simpler and works behind any NAT |
 | WebTransport / Media over QUIC | left out | uneven browser support, and plain HTTP range requests already stream well |
