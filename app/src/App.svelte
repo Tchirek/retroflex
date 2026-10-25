@@ -1,7 +1,8 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import { fade } from "svelte/transition";
-  import { openRoom, Station, type Snap, type Track } from "./lib/api";
+  import { openRoom, openStations, Station, type Snap, type Track } from "./lib/api";
+  import { blurs } from "./lib/art.svelte";
   import { derive, newSecret } from "./lib/crypto";
   import { frame, startFrames } from "./lib/frame.svelte";
   import { hash, parseTarget, roomLink, type Target } from "./lib/link";
@@ -9,6 +10,7 @@
   import { loadProfile } from "./lib/names";
   import { Player } from "./lib/player.svelte";
   import { Room, type Mode } from "./lib/room.svelte";
+  import Art from "./ui/Art.svelte";
   import Backdrop from "./ui/Backdrop.svelte";
   import Chat from "./ui/Chat.svelte";
   import Cover from "./ui/Cover.svelte";
@@ -23,7 +25,8 @@
   import Volume from "./ui/Volume.svelte";
   import Whisper from "./ui/Whisper.svelte";
 
-  type Panel = "lyrics" | "chat" | "queue";
+  type Panel = "lyrics" | "chat" | "queue" | "library";
+  const DEFAULT_HUB = "https://retroflex.tchirek.top";
 
   const tauri = "__TAURI_INTERNALS__" in window;
   const mac = tauri && /Mac OS X/.test(navigator.userAgent) && navigator.maxTouchPoints === 0;
@@ -33,9 +36,9 @@
   function homeHub(): string {
     if (!tauri) return location.origin;
     try {
-      return localStorage.getItem("retroflex.hub") ?? "";
+      return localStorage.getItem("retroflex.hub") ?? DEFAULT_HUB;
     } catch {
-      return "";
+      return DEFAULT_HUB;
     }
   }
 
@@ -45,9 +48,9 @@
   let player = $state<Player | null>(null);
   let tracks = $state<Track[]>([]);
   let lyrics = $state<LyricData | null>(null);
-  let shelf = $state(initial.kind === "station");
-  let panel = $state<Panel>("lyrics");
-  let view = $state<"now" | Panel>("now");
+  let panel = $state<Panel>(initial.kind === "station" ? "library" : "lyrics");
+  let view = $state<"now" | Panel>(initial.kind === "station" ? "library" : "now");
+  let probing = $state(initial.kind === "none");
   let wide = $state(true);
   let pending: { tracks: Snap[]; mode: Mode } | null = null;
   const lyricCache = new Map<string, LyricData | null>();
@@ -67,8 +70,9 @@
     mq.onchange = () => (wide = mq.matches);
     const onhash = () => {
       target = parseTarget(location.hash, homeHub());
-      shelf = target.kind === "station";
+      if (target.kind === "station") browse();
     };
+    if (initial.kind === "none") probe();
     addEventListener("hashchange", onhash);
     addEventListener("keydown", keys);
     return () => {
@@ -76,6 +80,22 @@
       removeEventListener("keydown", keys);
     };
   });
+
+  // 戸口にて　開いた駅が　あるか問う
+  async function probe() {
+    const hub = homeHub();
+    const names = hub ? await openStations(hub) : [];
+    if (names[0] && target.kind === "none") {
+      target = { kind: "station", hub, station: names[0], key: "" };
+      browse();
+    }
+    probing = false;
+  }
+
+  function browse() {
+    panel = "library";
+    view = "library";
+  }
 
   // 部屋の札　変われば糸を　張り替える
   $effect(() => {
@@ -105,7 +125,11 @@
     if (!st) return;
     let alive = true;
     st.library().then(
-      (t) => alive && (tracks = t),
+      (lib) => {
+        if (!alive) return;
+        Object.assign(blurs, lib.blurs);
+        tracks = lib.tracks;
+      },
       () => {},
     );
     return () => {
@@ -159,21 +183,20 @@
         localStorage.setItem("retroflex.hub", t.hub);
       } catch {}
     }
-    shelf = t.kind === "station";
+    if (t.kind === "station") browse();
     go(t);
     return true;
   }
 
   // 初めの歌　選べば部屋が　生まれけり
   async function add(list: Snap[], mode: Mode) {
-    if (mode === "now") shelf = false;
+    if (mode === "now" && !wide) view = "now";
     if (room) return room.enqueue(list, mode);
     if (target.kind !== "station") return;
     const secret = newSecret();
     try {
       const id = await openRoom(target.hub, target.station, target.key, derive(secret).ticket);
       pending = { tracks: list, mode };
-      shelf = false;
       go({ kind: "room", hub: target.hub, room: id, secret });
     } catch {}
   }
@@ -235,11 +258,11 @@
 {#if mac}<div class="drag" data-tauri-drag-region></div>{/if}
 
 {#if target.kind === "none"}
-  <Gate {onlink} />
+  {#if !probing}<Gate {onlink} />{/if}
 {:else if wide}
   <main class="wide" class:mac>
     <section class="stage">
-      <div class="art"><Cover src={station?.cover(current?.cover, false)} playing={room?.playing ?? false} /></div>
+      <div class="art"><Cover {station} cover={current?.cover} playing={room?.playing ?? false} /></div>
       <div class="meta">
         <div class="title ellipsis">{current?.title ?? ""}</div>
         <div class="artist ellipsis">{current?.artist ?? ""}</div>
@@ -250,23 +273,17 @@
         {#if room}<Members {room} onshare={share} />{:else}<span></span>{/if}
         {#if player}<div class="vol"><Volume value={player.volume} onchange={(v) => player?.setVolume(v)} /></div>{/if}
       </div>
+      {#if room}<div class="whispers">{#if shown !== "chat"}<Whisper {room} />{/if}</div>{/if}
     </section>
     <section class="side">
-      {#if shown === "lyrics"}
-        <Lyrics {lyrics} time={pos} onseek={(t) => room?.seek(t)} />
-      {:else if shown === "chat" && room}
-        <div class="pane"><Chat {room} /></div>
-      {:else if room}
-        <div class="pane"><Queue {room} {station} /></div>
-      {/if}
+      {@render pane(shown)}
     </section>
     {@render tabs()}
-    {#if room && shown !== "chat"}<div class="whispers"><Whisper {room} /></div>{/if}
   </main>
 {:else}
   <main class="phone" class:full={view === "now"}>
     {#if view === "now"}
-      <div class="art"><Cover src={station?.cover(current?.cover, false)} playing={room?.playing ?? false} /></div>
+      <div class="art"><Cover {station} cover={current?.cover} playing={room?.playing ?? false} /></div>
       <div class="row">
         <div class="meta">
           <div class="title ellipsis">{current?.title ?? ""}</div>
@@ -276,29 +293,35 @@
       </div>
     {:else}
       <header class="mini">
-        <span class="thumb">{#if station?.cover(current?.cover)}<img src={station.cover(current?.cover)} alt="" />{/if}</span>
+        <span class="thumb"><Art {station} cover={current?.cover} /></span>
         <div class="meta">
           <div class="title ellipsis">{current?.title ?? ""}</div>
           <div class="artist ellipsis">{current?.artist ?? ""}</div>
         </div>
         {#if room}<Members {room} onshare={share} />{/if}
       </header>
-      <section class="pane" in:fade={{ duration: 180 }}>
-        {#if view === "lyrics"}
-          <Lyrics {lyrics} time={pos} onseek={(t) => room?.seek(t)} />
-        {:else if view === "chat" && room}
-          <Chat {room} />
-        {:else if room}
-          <Queue {room} {station} />
-        {/if}
+      <section class="pane" in:fade={{ duration: 160 }}>
+        {@render pane(view)}
       </section>
     {/if}
-    {#if room && view !== "chat"}<div class="whispers"><Whisper {room} /></div>{/if}
+    {#if room && view !== "chat"}<div class="whispers"><Whisper {room} max={2} /></div>{/if}
     <Progress time={pos} duration={current?.duration ?? 0} onseek={(t) => room?.seek(t)} />
     <Transport {...transport} small={view !== "now"} />
     {@render tabs()}
   </main>
 {/if}
+
+{#snippet pane(which: Panel | "now")}
+  {#if which === "library"}
+    <div class="panel"><Library {tracks} {station} onadd={add} /></div>
+  {:else if which === "chat" && room}
+    <div class="panel"><Chat {room} /></div>
+  {:else if which === "queue" && room}
+    <div class="panel"><Queue {room} {station} /></div>
+  {:else}
+    <Lyrics {lyrics} time={pos} onseek={(t) => room?.seek(t)} />
+  {/if}
+{/snippet}
 
 {#snippet tabs()}
   <nav class="tabs">
@@ -311,15 +334,11 @@
     <button class="icon-btn" class:on={shown === "queue"} aria-label="Queue" onclick={() => tab("queue")} disabled={!room}>
       <Icon name="queue" size={20} />
     </button>
-    <button class="icon-btn" aria-label="Library" onclick={() => (shelf = true)} disabled={!station}>
+    <button class="icon-btn" class:on={shown === "library"} aria-label="Library" onclick={() => tab("library")} disabled={!station}>
       <Icon name="library" size={20} />
     </button>
   </nav>
 {/snippet}
-
-{#if shelf && station}
-  <Library {tracks} {station} onadd={add} onclose={() => (shelf = false)} />
-{/if}
 
 {#if player?.blocked}
   <button class="unlock" aria-label="Listen" onclick={() => player?.unlock()} transition:fade={{ duration: 250 }}>
@@ -395,9 +414,9 @@
     min-width: 0;
     padding-top: 6vh;
   }
-  .pane {
+  .panel {
     height: 100%;
-    max-width: 640px;
+    max-width: 720px;
   }
   .tabs {
     position: absolute;
@@ -413,15 +432,13 @@
     opacity: 0.3;
     pointer-events: none;
   }
+  /* 耳打ちの　席を空けおき　揺らぎなし */
   .whispers {
-    position: absolute;
-    left: clamp(32px, 6vw, 110px);
-    bottom: calc(var(--bottom) + 28px);
-  }
-  .wide .whispers {
-    left: auto;
-    right: clamp(32px, 6vw, 110px);
-    bottom: calc(var(--bottom) + 36px);
+    height: 112px;
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-start;
+    overflow: hidden;
   }
 
   /* 掌に　縦一列の　小舞台 */
@@ -466,12 +483,6 @@
     background: var(--glass);
     box-shadow: 0 8px 20px rgba(0, 0, 0, 0.3);
   }
-  .thumb img {
-    width: 100%;
-    height: 100%;
-    object-fit: cover;
-    display: block;
-  }
   .mini .title {
     font-size: 16px;
   }
@@ -481,6 +492,8 @@
   .phone .pane {
     flex: 1;
     min-height: 0;
+  }
+  .phone .panel {
     max-width: none;
   }
   .phone .tabs {
@@ -488,11 +501,9 @@
     justify-content: space-around;
   }
   .phone .whispers {
-    position: absolute;
-    left: 22px;
-    right: 22px;
-    bottom: calc(var(--bottom) + 200px);
-    z-index: 2;
+    height: 72px;
+    justify-content: flex-end;
+    flex: none;
   }
 
   .unlock {
