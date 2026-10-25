@@ -55,13 +55,17 @@
   .progress {
     width: 100%;
   }
+  /* 太れども　器の丈は　変わらずに */
   .bar {
-    padding: 9px 0;
+    height: 24px;
+    display: flex;
+    align-items: center;
     cursor: pointer;
     touch-action: none;
     outline: none;
   }
   .track {
+    flex: 1;
     height: 6px;
     border-radius: 6px;
     background: rgba(255, 255, 255, 0.18);
