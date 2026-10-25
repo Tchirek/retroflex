@@ -10,6 +10,7 @@ use percent_encoding::{AsciiSet, NON_ALPHANUMERIC, percent_decode_str, utf8_perc
 use serde::Deserialize;
 
 use super::httpread::HttpReader;
+use super::s3::S3;
 
 const SEGMENT: &AsciiSet = &NON_ALPHANUMERIC.remove(b'-').remove(b'_').remove(b'.').remove(b'~');
 
@@ -28,6 +29,18 @@ impl<T: Read + Seek + Send> ReadSeek for T {}
 pub enum Source {
     Local { root: PathBuf },
     Alist { base: String, root: String, token: Option<String>, agent: ureq::Agent, signs: Mutex<HashMap<String, String>> },
+    Bucket { s3: S3, bucket: String, prefix: String, agent: ureq::Agent },
+}
+
+const DIRECT_SECS: u64 = 6 * 3600;
+
+// 網に出る　使いの者を　一人雇う
+fn agent() -> ureq::Agent {
+    ureq::Agent::config_builder()
+        .timeout_connect(Some(std::time::Duration::from_secs(10)))
+        .timeout_recv_response(Some(std::time::Duration::from_secs(30)))
+        .build()
+        .new_agent()
 }
 
 #[derive(Deserialize)]
@@ -56,18 +69,26 @@ struct AlistItem {
 
 impl Source {
     // 道しるべ　網か手元か　見分けおく
-    pub fn parse(spec: &str, token: Option<String>) -> Result<Self> {
+    pub fn parse(spec: &str, token: Option<String>, s3: Option<&S3>) -> Result<Self> {
+        if let Some(rest) = spec.strip_prefix("r2://").or_else(|| spec.strip_prefix("s3://")) {
+            let Some(s3) = s3 else { bail!("{spec} needs RETROFLEX_S3_ENDPOINT, RETROFLEX_S3_KEY and RETROFLEX_S3_SECRET") };
+            let (bucket, prefix) = rest.split_once('/').unwrap_or((rest, ""));
+            if bucket.is_empty() {
+                bail!("{spec} names no bucket");
+            }
+            return Ok(Source::Bucket {
+                s3: s3.clone(),
+                bucket: bucket.to_string(),
+                prefix: prefix.trim_matches('/').to_string(),
+                agent: agent(),
+            });
+        }
         if spec.starts_with("http://") || spec.starts_with("https://") {
             let scheme_end = spec.find("://").unwrap() + 3;
             let path_start = spec[scheme_end..].find('/').map(|i| i + scheme_end).unwrap_or(spec.len());
             let base = spec[..path_start].to_string();
             let root = percent_decode_str(&spec[path_start..]).decode_utf8()?.trim_end_matches('/').to_string();
-            let agent = ureq::Agent::config_builder()
-                .timeout_connect(Some(std::time::Duration::from_secs(10)))
-                .timeout_recv_response(Some(std::time::Duration::from_secs(30)))
-                .build()
-                .new_agent();
-            Ok(Source::Alist { base, root, token, agent, signs: Mutex::new(HashMap::new()) })
+            Ok(Source::Alist { base, root, token, agent: agent(), signs: Mutex::new(HashMap::new()) })
         } else {
             let root = std::fs::canonicalize(spec).with_context(|| format!("library {spec}"))?;
             if !root.is_dir() {
@@ -82,7 +103,39 @@ impl Source {
         match self {
             Source::Local { root } => root.to_string_lossy().replace('\\', "/"),
             Source::Alist { base, root, .. } => format!("{base}{root}"),
+            Source::Bucket { bucket, prefix, .. } => format!("s3://{bucket}/{prefix}"),
         }
+    }
+
+    // 倉の札　前置きの名を　継ぎ足して
+    fn object_key(&self, rel: &str) -> String {
+        match self {
+            Source::Bucket { prefix, .. } if !prefix.is_empty() => format!("{prefix}/{rel}"),
+            _ => rel.to_string(),
+        }
+    }
+
+    // 倉の扉　期限を切りて　鍵を貸す
+    fn signed(&self, method: &str, rel: &str, secs: u64) -> String {
+        let Source::Bucket { s3, bucket, .. } = self else { unreachable!() };
+        s3.presign(method, &S3::object_path(bucket, &self.object_key(rel)), &[], secs)
+    }
+
+    // 聴く人へ　倉から直に　届く道
+    pub fn direct_url(&self, rel: &str) -> Option<String> {
+        matches!(self, Source::Bucket { .. }).then(|| self.signed("GET", rel, DIRECT_SECS))
+    }
+
+    // 倉へ積む　重さを告げて　ひと運び
+    pub fn put(&self, rel: &str, size: u64, body: impl Read + 'static) -> Result<()> {
+        let Source::Bucket { agent, .. } = self else { bail!("only buckets take uploads") };
+        let mime = mime_guess::from_path(rel).first_or_octet_stream();
+        agent
+            .put(self.signed("PUT", rel, 3600))
+            .header("Content-Length", size.to_string())
+            .header("Content-Type", mime.as_ref())
+            .send(ureq::SendBody::from_owned_reader(body))?;
+        Ok(())
     }
 
     // 隅々を　ひとつ残らず　歩みけり
@@ -112,6 +165,18 @@ impl Source {
                     out.push(Entry { rel, size: meta.len(), stamp });
                 }
                 Ok(out)
+            }
+            Source::Bucket { s3, bucket, prefix, agent } => {
+                let lead = if prefix.is_empty() { String::new() } else { format!("{prefix}/") };
+                Ok(s3
+                    .list(agent, bucket, &lead)?
+                    .into_iter()
+                    .filter(|o| !o.key.ends_with('/'))
+                    .filter_map(|o| {
+                        let rel = o.key.strip_prefix(&lead)?.to_string();
+                        Some(Entry { rel, size: o.size, stamp: o.etag })
+                    })
+                    .collect())
             }
             Source::Alist { signs, .. } => {
                 let mut out = Vec::new();
@@ -168,6 +233,7 @@ impl Source {
         match self {
             Source::Local { root } => Ok(Box::new(BufReader::new(File::open(root.join(&entry.rel))?))),
             Source::Alist { agent, .. } => Ok(Box::new(HttpReader::new(agent.clone(), self.alist_url(&entry.rel), entry.size))),
+            Source::Bucket { agent, .. } => Ok(Box::new(HttpReader::new(agent.clone(), self.signed("GET", &entry.rel, 3600), entry.size))),
         }
     }
 
@@ -179,10 +245,11 @@ impl Source {
                 f.seek(SeekFrom::Start(start))?;
                 Ok(Box::new(f.take(len)))
             }
-            Source::Alist { agent, .. } => {
+            Source::Alist { agent, .. } | Source::Bucket { agent, .. } => {
                 let end = start + len.max(1) - 1;
+                let url = if matches!(self, Source::Bucket { .. }) { self.signed("GET", rel, 3600) } else { self.alist_url(rel) };
                 let resp = agent
-                    .get(self.alist_url(rel))
+                    .get(url)
                     .header("Range", format!("bytes={start}-{end}"))
                     .call()?;
                 Ok(Box::new(resp.into_body().into_reader().take(len)))
@@ -205,7 +272,7 @@ mod tests {
     // 網の名を　分けて解けば　根が見える
     #[test]
     fn parses_alist_urls() {
-        let s = Source::parse("http://10.0.0.2:5244/S:%20drive/kksk/", None).unwrap();
+        let s = Source::parse("http://10.0.0.2:5244/S:%20drive/kksk/", None, None).unwrap();
         assert_eq!(s.label(), "http://10.0.0.2:5244/S: drive/kksk");
         assert_eq!(s.alist_url("A b/01 x.m4a"), "http://10.0.0.2:5244/d/S%3A%20drive/kksk/A%20b/01%20x.m4a");
     }
