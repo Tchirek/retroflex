@@ -57,6 +57,13 @@ export function parseLrc(source: string): Lyrics {
   return { lines, synced: true };
 }
 
+// 聴く人の　母の言葉を　名で知る
+export function tongue(): string {
+  const l = (navigator.languages?.[0] ?? navigator.language ?? "en").toLowerCase();
+  if (l.startsWith("zh")) return /-(tw|hk|mo|hant)/.test(l) ? "zh-TW" : "zh-CN";
+  return l.split("-")[0] || "en";
+}
+
 // 今の刻　どの一行に　宿るかと
 export function activeLine(lines: LyricLine[], time: number): number {
   let lo = 0;

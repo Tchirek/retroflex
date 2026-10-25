@@ -12,7 +12,7 @@
   import { derive, newSecret } from "./lib/crypto";
   import { frame, startFrames } from "./lib/frame.svelte";
   import { hash, parseTarget, roomLink, type Target } from "./lib/link";
-  import { parseLrc, type Lyrics as LyricData } from "./lib/lrc";
+  import { parseLrc, tongue, type Lyrics as LyricData } from "./lib/lrc";
   import { loadProfile } from "./lib/names";
   import { adoptPlaylist } from "./lib/playlists.svelte";
   import { sendLink } from "./lib/share";
@@ -202,6 +202,14 @@
       const parsed = text ? parseLrc(text) : null;
       lyricCache.set(id, parsed);
       if (alive) lyrics = parsed;
+      // 異国の詞　母の言葉を　下に添う
+      if (!parsed?.synced || parsed.lines.some((l) => l.sub)) return;
+      const said = await st.translate(id, tongue());
+      if (!said) return;
+      const lines = parsed.lines.map((l) => (said[l.text] ? { ...l, sub: said[l.text] } : l));
+      const done = { ...parsed, lines };
+      lyricCache.set(id, done);
+      if (alive) lyrics = done;
     });
     return () => {
       alive = false;

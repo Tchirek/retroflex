@@ -47,6 +47,18 @@ export class Station {
     const r = await fetch(this.url(`lyrics/${id}`));
     return r.ok ? r.text() : null;
   }
+
+  // 一行ごと　訳を中枢に　頼みけり
+  async translate(id: string, lang: string): Promise<Record<string, string> | null> {
+    try {
+      const r = await fetch(this.url(`lyrics/${id}/to/${lang}`));
+      if (!r.ok) return null;
+      const body = await r.json();
+      return body.lines && Object.keys(body.lines).length ? (body.lines as Record<string, string>) : null;
+    } catch {
+      return null;
+    }
+  }
 }
 
 // 戸の開いた　駅の名前を　尋ねけり
