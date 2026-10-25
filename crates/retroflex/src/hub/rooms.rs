@@ -7,6 +7,7 @@ use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
+use data_encoding::BASE64URL_NOPAD;
 use futures_util::{SinkExt, StreamExt};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -24,6 +25,10 @@ const MAX_ROOMS: usize = 1000;
 const MAX_QUEUE: usize = 5000;
 const MAX_MEMBERS: usize = 64;
 const AUTO: usize = 3;
+const CHAT_CHARS: usize = 450;
+const CHAT_WINDOW: Duration = Duration::from_secs(60);
+const DRAFT_GAP: Duration = Duration::from_millis(25);
+const SEALED: usize = 40;
 
 // 曲の影　名と長さだけ　写し取る
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -98,9 +103,44 @@ enum In {
     Ended { qid: u32 },
 }
 
+// 封の丈　四つずつ数え　字を量る
+fn sealed_chars(ct: &str) -> Option<usize> {
+    let raw = BASE64URL_NOPAD.decode(ct.as_bytes()).ok()?;
+    let body = raw.len().checked_sub(SEALED)?;
+    (body % 4 == 0).then_some(body / 4)
+}
+
 struct Member {
     profile: Option<String>,
     tx: mpsc::Sender<Message>,
+    spent: VecDeque<(Instant, usize)>,
+    drafted: Option<Instant>,
+}
+
+impl Member {
+    fn new(tx: mpsc::Sender<Message>) -> Self {
+        Self { profile: None, tx, spent: VecDeque::new(), drafted: None }
+    }
+
+    // 一分に　語り得る字の　升を見る
+    fn spend(&mut self, chars: usize, now: Instant) -> Result<(), f64> {
+        while self.spent.front().is_some_and(|(t, _)| now.duration_since(*t) > CHAT_WINDOW) {
+            self.spent.pop_front();
+        }
+        let used: usize = self.spent.iter().map(|(_, n)| n).sum();
+        if used + chars <= CHAT_CHARS {
+            self.spent.push_back((now, chars));
+            return Ok(());
+        }
+        let mut freed = used + chars - CHAT_CHARS;
+        for (t, n) in &self.spent {
+            if *n >= freed {
+                return Err(CHAT_WINDOW.saturating_sub(now.duration_since(*t)).as_secs_f64());
+            }
+            freed -= n;
+        }
+        Err(CHAT_WINDOW.as_secs_f64())
+    }
 }
 
 // 誰もみな　同じ盤面　同じ針
@@ -223,6 +263,12 @@ impl Inner {
         }
     }
 
+    fn tell(&self, to: u32, m: &Value) {
+        if let Some(member) = self.members.get(&to) {
+            let _ = member.tx.try_send(msg(m));
+        }
+    }
+
     fn changed(&mut self, now: f64) {
         self.rev += 1;
         let s = self.state(now);
@@ -239,7 +285,16 @@ impl Inner {
                 }
                 self.broadcast(&json!({ "t": "profile", "id": me, "ct": ct }), None);
             }
-            In::Chat { ct } if ct.len() <= 16 * 1024 => {
+            In::Chat { ct } => {
+                let Some(chars) = sealed_chars(&ct).filter(|n| (1..=CHAT_CHARS).contains(n)) else {
+                    self.tell(me, &json!({ "t": "limit", "wait": 0 }));
+                    return;
+                };
+                let Some(member) = self.members.get_mut(&me) else { return };
+                if let Err(wait) = member.spend(chars, Instant::now()) {
+                    self.tell(me, &json!({ "t": "limit", "wait": wait.ceil() }));
+                    return;
+                }
                 let line = json!({ "t": "chat", "from": me, "ct": ct, "at": now });
                 self.backlog.push_back(line.clone());
                 while self.backlog.len() > BACKLOG {
@@ -247,7 +302,18 @@ impl Inner {
                 }
                 self.broadcast(&line, None);
             }
-            In::Draft { ct } if ct.len() <= 8 * 1024 => {
+            In::Draft { ct } => {
+                if !ct.is_empty() {
+                    if sealed_chars(&ct).is_none_or(|n| n > CHAT_CHARS) {
+                        return;
+                    }
+                    let Some(member) = self.members.get_mut(&me) else { return };
+                    let at = Instant::now();
+                    if member.drafted.is_some_and(|t| at.duration_since(t) < DRAFT_GAP) {
+                        return;
+                    }
+                    member.drafted = Some(at);
+                }
                 self.broadcast(&json!({ "t": "draft", "from": me, "ct": ct }), Some(me));
             }
             In::Enqueue { tracks, mode } => {
@@ -462,23 +528,26 @@ pub async fn join(State(hub): State<Hub>, Path(id): Path<String>, Query(q): Quer
 async fn member(room: Arc<Room>, stations: Stations, socket: WebSocket) {
     let (mut sink, mut stream) = socket.split();
     let (tx, mut rx) = mpsc::channel::<Message>(512);
-    let me = {
+    let seat = {
         let mut inner = room.inner.lock().unwrap();
-        if inner.members.len() >= MAX_MEMBERS {
-            return;
-        }
-        inner.next_member += 1;
-        let me = inner.next_member;
-        let now = now_ms();
-        let members: Vec<Value> = inner.members.iter().map(|(id, m)| json!({ "id": id, "ct": m.profile })).collect();
-        let backlog: Vec<&Value> = inner.backlog.iter().collect();
-        let welcome = json!({ "t": "welcome", "you": me, "now": now, "station": room.station, "members": members, "backlog": backlog });
-        let _ = tx.try_send(msg(&welcome));
-        let _ = tx.try_send(msg(&inner.state(now)));
-        inner.broadcast(&json!({ "t": "join", "id": me }), None);
-        inner.members.insert(me, Member { profile: None, tx: tx.clone() });
-        inner.empty_since = None;
-        me
+        (inner.members.len() < MAX_MEMBERS).then(|| {
+            inner.next_member += 1;
+            let me = inner.next_member;
+            let now = now_ms();
+            let members: Vec<Value> = inner.members.iter().map(|(id, m)| json!({ "id": id, "ct": m.profile })).collect();
+            let backlog: Vec<&Value> = inner.backlog.iter().collect();
+            let welcome = json!({ "t": "welcome", "you": me, "now": now, "station": room.station, "members": members, "backlog": backlog });
+            let _ = tx.try_send(msg(&welcome));
+            let _ = tx.try_send(msg(&inner.state(now)));
+            inner.broadcast(&json!({ "t": "join", "id": me }), None);
+            inner.members.insert(me, Member::new(tx.clone()));
+            inner.empty_since = None;
+            me
+        })
+    };
+    let Some(me) = seat else {
+        let _ = sink.send(msg(&json!({ "t": "full" }))).await;
+        return;
     };
 
     let writer = tokio::spawn(async move {
@@ -534,6 +603,15 @@ mod tests {
         Snap { id: id.into(), title: id.into(), artist: "a".into(), album: "b".into(), duration, cover: None }
     }
 
+    fn seat(r: &mut Inner, id: u32) {
+        let (tx, _rx) = mpsc::channel(64);
+        r.members.insert(id, Member::new(tx));
+    }
+
+    fn sealed(chars: usize) -> String {
+        BASE64URL_NOPAD.encode(&vec![7u8; SEALED + 4 * chars])
+    }
+
     // 並べては　先へ後へと　針移す
     #[test]
     fn queue_and_transport() {
@@ -567,9 +645,8 @@ mod tests {
     // 歌尽きて　籤の三つが　また鳴りぬ
     #[test]
     fn refills_when_the_queue_runs_dry() {
-        let (tx, _rx) = mpsc::channel(8);
         let mut r = Inner::default();
-        r.members.insert(1, Member { profile: None, tx });
+        seat(&mut r, 1);
         let pool: Vec<Snap> = (0..10).map(|i| snap(&format!("p{i}"), 60.0)).collect();
         r.handle(1, In::Enqueue { tracks: vec![snap("x", 10.0)], mode: Mode::End }, 0.0);
         r.handle(1, In::Next, 1000.0);
@@ -589,4 +666,19 @@ mod tests {
         assert_eq!(r.queue.len(), 3);
     }
 
+    // 一分に　四百五十字　越えるなと
+    #[test]
+    fn chat_budget() {
+        let mut r = Inner::default();
+        seat(&mut r, 1);
+        r.handle(1, In::Chat { ct: sealed(300) }, 0.0);
+        assert_eq!(r.backlog.len(), 1);
+        r.handle(1, In::Chat { ct: sealed(200) }, 0.0);
+        assert_eq!(r.backlog.len(), 1);
+        r.handle(1, In::Chat { ct: sealed(150) }, 0.0);
+        assert_eq!(r.backlog.len(), 2);
+        r.handle(1, In::Chat { ct: BASE64URL_NOPAD.encode(&[1u8; SEALED + 6]) }, 0.0);
+        assert_eq!(r.backlog.len(), 2);
+        assert_eq!(sealed_chars(&sealed(12)), Some(12));
+    }
 }
