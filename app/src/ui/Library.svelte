@@ -3,12 +3,13 @@
   import { snap, type Snap, type Station, type Track } from "../lib/api";
   import { albums, search, type Album } from "../lib/library";
   import { haptic } from "../lib/haptics";
-  import { openExternal } from "../lib/links";
+  import { isApp, openExternal } from "../lib/links";
   import { dropPlaylist, playlists, type Playlist } from "../lib/playlists.svelte";
   import type { Mode } from "../lib/room.svelte";
   import AddToggle from "./AddToggle.svelte";
   import Art from "./Art.svelte";
   import Icon from "./Icon.svelte";
+  import Keep from "./Keep.svelte";
   import Rows from "./Rows.svelte";
 
   let {
@@ -117,6 +118,7 @@
               </button>
               <button class="pill" aria-label="Play album next" onclick={() => take(open!.tracks, "next")}><Icon name="playnext" size={18} /></button>
               <AddToggle variant="pill" on={queued(ids(open.tracks))} onclick={() => toggle(open!.tracks.map(snap))} />
+              {#if isApp && station}<Keep {station} tracks={open.tracks} variant="pill" />{/if}
             </div>
           </div>
         </div>
@@ -139,6 +141,7 @@
                 <Icon name={busy ? "pause" : "play"} size={18} />
               </button>
               <AddToggle variant="pill" on={queued(ids(lt))} onclick={() => toggle(lt.map(snap))} />
+              {#if isApp && station}<Keep {station} tracks={lt} variant="pill" />{/if}
               <button
                 class="pill"
                 aria-label="Delete list"

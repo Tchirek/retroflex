@@ -4,6 +4,7 @@
   import { haptic } from "./lib/haptics";
   import { listenDeepLinks, offerApp } from "./lib/deeplink";
   import { isApp, openExternal } from "./lib/links";
+  import { loadKept } from "./lib/offline.svelte";
   import { checkUpdate, type Update } from "./lib/update";
   import { openRoom, openStations, Station, type Snap, type Track } from "./lib/api";
   import { blurs } from "./lib/art.svelte";
@@ -106,6 +107,7 @@
     };
     if (initial.kind === "none") probe();
     if (isApp) {
+      loadKept();
       listenDeepLinks((text) => onlink(text));
       checkUpdate(__APP_VERSION__).then((u) => (update = u));
     } else offerApp(initial);
