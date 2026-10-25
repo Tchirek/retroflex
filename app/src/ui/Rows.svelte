@@ -2,6 +2,7 @@
   import { snap, type Snap, type Station, type Track } from "../lib/api";
   import { clock } from "../lib/library";
   import type { Mode } from "../lib/room.svelte";
+  import AddToggle from "./AddToggle.svelte";
   import Art from "./Art.svelte";
   import Icon from "./Icon.svelte";
 
@@ -11,14 +12,24 @@
     numbered = false,
     art = true,
     onadd,
-  }: { tracks: Track[]; station: Station | null; numbered?: boolean; art?: boolean; onadd: (t: Snap[], mode: Mode) => void } =
-    $props();
+    queued,
+    toggle,
+  }: {
+    tracks: Track[];
+    station: Station | null;
+    numbered?: boolean;
+    art?: boolean;
+    onadd: (t: Snap[], mode: Mode) => void;
+    queued: (ids: string[]) => boolean;
+    toggle: (t: Snap[]) => void;
+  } = $props();
 </script>
 
 <!-- 一行に　今か次かか　末にかと -->
 <div class="rows">
   {#each tracks as t, i (t.id)}
-    <div class="row">
+    {@const on = queued([t.id])}
+    <div class="row" class:on>
       <button class="hit" onclick={() => onadd([snap(t)], "now")} aria-label={t.title}>
         {#if art}
           <span class="lead art"><Art {station} cover={t.cover} /><span class="go"><Icon name="play" size={16} /></span></span>
@@ -35,9 +46,7 @@
         <button class="icon-btn" aria-label="Play next" onclick={() => onadd([snap(t)], "next")}>
           <Icon name="playnext" size={18} />
         </button>
-        <button class="icon-btn" aria-label="Add to queue" onclick={() => onadd([snap(t)], "end")}>
-          <Icon name="plus" size={18} />
-        </button>
+        <AddToggle {on} onclick={() => toggle([snap(t)])} />
       </span>
     </div>
   {/each}
@@ -132,6 +141,7 @@
     transition: opacity 0.12s;
   }
   .row:hover .acts,
+  .row.on .acts,
   .acts:focus-within {
     opacity: 1;
   }

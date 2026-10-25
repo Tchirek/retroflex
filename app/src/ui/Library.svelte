@@ -3,6 +3,7 @@
   import { snap, type Snap, type Station, type Track } from "../lib/api";
   import { albums, search, type Album } from "../lib/library";
   import type { Mode } from "../lib/room.svelte";
+  import AddToggle from "./AddToggle.svelte";
   import Art from "./Art.svelte";
   import Icon from "./Icon.svelte";
   import Rows from "./Rows.svelte";
@@ -11,7 +12,17 @@
     tracks,
     station,
     onadd,
-  }: { tracks: Track[]; station: Station | null; onadd: (t: Snap[], mode: Mode) => void } = $props();
+    queued,
+    toggle,
+  }: {
+    tracks: Track[];
+    station: Station | null;
+    onadd: (t: Snap[], mode: Mode) => void;
+    queued: (ids: string[]) => boolean;
+    toggle: (t: Snap[]) => void;
+  } = $props();
+
+  const ids = (list: Track[]) => list.map((t) => t.id);
 
   let query = $state("");
   let open = $state<Album | null>(null);
@@ -47,7 +58,7 @@
 
   <div class="body scroll">
     {#if query}
-      <div in:fade={{ duration: 120 }}><Rows tracks={found} {station} {onadd} /></div>
+      <div in:fade={{ duration: 120 }}><Rows tracks={found} {station} {onadd} {queued} {toggle} /></div>
     {:else if open}
       <!-- 盤を開き　針を落とすも　積むも良し -->
       <div class="album" in:fly={{ x: 24, duration: 260 }}>
@@ -60,18 +71,19 @@
             <div class="acts">
               <button class="pill solid" aria-label="Play album" onclick={() => take(open!.tracks, "now")}><Icon name="play" size={18} /></button>
               <button class="pill" aria-label="Play album next" onclick={() => take(open!.tracks, "next")}><Icon name="playnext" size={18} /></button>
-              <button class="pill" aria-label="Add album to queue" onclick={() => take(open!.tracks, "end")}><Icon name="plus" size={18} /></button>
+              <AddToggle variant="pill" on={queued(ids(open.tracks))} onclick={() => toggle(open!.tracks.map(snap))} />
             </div>
           </div>
         </div>
-        <Rows tracks={open.tracks} {station} art={false} numbered {onadd} />
+        <Rows tracks={open.tracks} {station} art={false} numbered {onadd} {queued} {toggle} />
       </div>
     {:else if songs}
-      <div in:fade={{ duration: 120 }}><Rows {tracks} {station} {onadd} /></div>
+      <div in:fade={{ duration: 120 }}><Rows {tracks} {station} {onadd} {queued} {toggle} /></div>
     {:else}
       <!-- 背表紙に　触れれば今を　鳴らす釦 -->
       <div class="grid" in:fade={{ duration: 120 }}>
         {#each shelf as a (a.key)}
+          {@const on = queued(ids(a.tracks))}
           <div class="card">
             <button class="face" onclick={() => (open = a)} aria-label={a.title}>
               <span class="cover"><Art {station} cover={a.cover} /></span>
@@ -79,8 +91,8 @@
               <span class="sub ellipsis">{a.artist}</span>
             </button>
             <span class="over">
-              <span class="quick">
-                <button class="dot" aria-label="Add album to queue" onclick={() => take(a.tracks, "end")}><Icon name="plus" size={16} stroke={2.2} /></button>
+              <span class="quick" class:on>
+                <span class="reveal"><AddToggle variant="dot" size={16} {on} onclick={() => toggle(a.tracks.map(snap))} /></span>
                 <button class="dot play" aria-label="Play album" onclick={() => take(a.tracks, "now")}><Icon name="play" size={18} /></button>
               </span>
             </span>
@@ -237,8 +249,20 @@
     background: #fff;
     box-shadow: 0 8px 20px rgba(0, 0, 0, 0.35);
   }
+  .reveal {
+    display: grid;
+    pointer-events: auto;
+    opacity: 0;
+    transform: translateY(6px);
+    transition:
+      opacity 0.15s,
+      transform 0.25s var(--spring);
+  }
   .card:hover .dot,
-  .dot:focus-visible {
+  .card:hover .reveal,
+  .quick.on .reveal,
+  .dot:focus-visible,
+  .reveal:focus-within {
     opacity: 1;
     transform: none;
   }
@@ -246,7 +270,8 @@
     transform: scale(0.9);
   }
   @media (hover: none) {
-    .dot {
+    .dot,
+    .reveal {
       opacity: 1;
       transform: none;
     }
