@@ -6,39 +6,20 @@
   let { room }: { room: Room } = $props();
 
   let text = $state("");
-  let live = $state(readLive());
   let list: HTMLDivElement;
   let last = 0;
   let pending = 0;
-
-  function readLive(): boolean {
-    try {
-      return localStorage.getItem("retroflex.live") !== "0";
-    } catch {
-      return true;
-    }
-  }
 
   const typing = $derived(Object.values(room.members).filter((m) => m.id !== room.me && m.draft));
 
   // 一文字の　ためらいまでも　風に乗す
   function stream() {
-    if (!live) return;
     clearTimeout(pending);
     const wait = Math.max(0, 45 - (performance.now() - last));
     pending = window.setTimeout(() => {
       last = performance.now();
       room.draft(text);
     }, wait);
-  }
-
-  function toggle() {
-    live = !live;
-    try {
-      localStorage.setItem("retroflex.live", live ? "1" : "0");
-    } catch {}
-    if (!live) room.draft("");
-    else stream();
   }
 
   function send() {
@@ -73,9 +54,6 @@
     {/each}
   </div>
   <div class="bar glass">
-    <button class="icon-btn" class:on={live} aria-label="Live typing" aria-pressed={live} onclick={toggle}>
-      <Icon name={live ? "eye" : "eyeoff"} size={19} />
-    </button>
     <input
       bind:value={text}
       maxlength="2000"
@@ -165,7 +143,7 @@
     flex: 1;
     min-width: 0;
     height: 36px;
-    padding: 0 6px;
+    padding: 0 6px 0 12px;
     border: 0;
     outline: none;
     background: transparent;
