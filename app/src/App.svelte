@@ -350,7 +350,8 @@
         {@render pane(view)}
       </section>
     {:else}
-      <section class="pane tall" in:fade={{ duration: 160 }}>
+      {#if view === "chat"}{@render dock()}{/if}
+      <section class="pane tall" class:talk={view === "chat"} in:fade={{ duration: 160 }}>
         {@render pane(view)}
       </section>
     {/if}
@@ -358,7 +359,7 @@
       {#if room}<div class="whispers"><Whisper {room} max={2} /></div>{/if}
       <Progress time={pos} duration={current?.duration ?? 0} onseek={(t) => room?.seek(t)} />
       <Transport {...transport} small={view !== "now"} />
-    {:else}
+    {:else if view !== "chat"}
       {@render dock()}
     {/if}
     {@render tabs()}
@@ -585,6 +586,9 @@
   }
   .phone .panel {
     max-width: none;
+  }
+  .phone .pane.talk {
+    padding-bottom: 10px;
   }
   .dock {
     position: relative;
