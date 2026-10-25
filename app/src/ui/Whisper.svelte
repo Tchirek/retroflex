@@ -3,14 +3,16 @@
   import type { Room } from "../lib/room.svelte";
   import { frame } from "../lib/frame.svelte";
 
-  let { room }: { room: Room } = $props();
+  let { room, max = 3 }: { room: Room; max?: number } = $props();
 
   const LIFE = 7000;
   // 耳打ちは　ほんの数秒　浮かび消ゆ
-  const recent = $derived(
-    room.lines.filter((l) => !l.mine && frame.t + room.clock.offset - l.at < LIFE).slice(-3),
-  );
-  const typing = $derived(Object.values(room.members).filter((m) => m.id !== room.me && m.draft));
+  const typing = $derived(Object.values(room.members).filter((m) => m.id !== room.me && m.draft).slice(0, max));
+  const recent = $derived.by(() => {
+    const left = max - typing.length;
+    if (left <= 0) return [];
+    return room.lines.filter((l) => !l.mine && frame.t + room.clock.offset - l.at < LIFE).slice(-left);
+  });
 </script>
 
 <div class="whisper" aria-live="polite">
