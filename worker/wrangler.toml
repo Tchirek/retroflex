@@ -1,0 +1,10 @@
+# 縁の上　倉と名前を　結ぶ札
+name = "retroflex-media"
+main = "src/index.js"
+compatibility_date = "2026-10-01"
+workers_dev = false
+routes = [{ pattern = "retroflex-media.tchirek.top", custom_domain = true }]
+
+[[r2_buckets]]
+binding = "BUCKET"
+bucket_name = "retroflex"
