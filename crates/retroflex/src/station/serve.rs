@@ -22,6 +22,14 @@ impl Reply {
         Self { status, headers: Vec::new(), body: Box::new(std::io::empty()) }
     }
 
+    // 倉を指し　ここより直に　汲めと言う
+    fn redirect(url: String) -> Self {
+        let mut r = Self::empty(302);
+        r.headers.push(("location".into(), url));
+        r.headers.push(("cache-control".into(), "no-store".into()));
+        r
+    }
+
     fn bytes(ctype: &str, data: Vec<u8>) -> Self {
         let headers = vec![
             ("content-type".into(), ctype.into()),
@@ -70,6 +78,11 @@ fn answer(st: &Station, op: &Op, range: Option<&str>) -> Result<Reply> {
         Op::Library => Ok(Reply::bytes("application/json", index.library.to_vec())),
         Op::Audio { track } => {
             let Some(item) = index.items.get(track) else { return Ok(Reply::empty(404)) };
+            if st.direct {
+                if let Some(url) = st.sources[item.src].direct_url(&item.rel) {
+                    return Ok(Reply::redirect(url));
+                }
+            }
             let size = item.size;
             let (status, start, end) = match range.and_then(|r| parse_range(r, size)) {
                 Some(Ok((a, b))) => (206, a, b),
@@ -95,6 +108,11 @@ fn answer(st: &Station, op: &Op, range: Option<&str>) -> Result<Reply> {
         }
         Op::Cover { cover, thumb } => {
             let Some(asset) = index.covers.get(cover) else { return Ok(Reply::empty(404)) };
+            if let (false, true, Asset::File { src, rel }) = (*thumb, st.direct, asset) {
+                if let Some(url) = st.sources[*src].direct_url(rel) {
+                    return Ok(Reply::redirect(url));
+                }
+            }
             let data = if *thumb { thumbnail(st, cover, asset)? } else { load(st, asset)? };
             let ctype = if data.starts_with(b"\x89PNG") { "image/png" } else { "image/jpeg" };
             Ok(Reply::bytes(ctype, data))
