@@ -1,3 +1,4 @@
+mod hot;
 mod httpread;
 mod s3;
 mod scan;
@@ -67,8 +68,14 @@ pub struct StationArgs {
     public: Option<String>,
     #[arg(long, env = "RETROFLEX_OPEN", help = "Let anyone on the hub browse this library and open rooms")]
     open: bool,
-    #[arg(long, env = "RETROFLEX_RELAY", help = "Stream bucket audio through the station instead of handing out direct links")]
+    #[arg(long, env = "RETROFLEX_RELAY", help = "Never hand out bucket-endpoint links; use the media worker or stream through the station")]
     relay: bool,
+    #[arg(long = "media-url", env = "RETROFLEX_MEDIA_URL", help = "Media worker that serves bucket objects, e.g. https://media.example.org")]
+    media_url: Option<String>,
+    #[arg(long = "media-secret", env = "RETROFLEX_MEDIA_SECRET", hide_env_values = true, help = "Secret shared with the media worker")]
+    media_secret: Option<String>,
+    #[arg(long = "hot-mb", env = "RETROFLEX_HOT_MB", default_value_t = 2048, help = "Disk kept for recently relayed bucket audio")]
+    hot_mb: u64,
     #[command(flatten)]
     bucket: BucketArgs,
 }
@@ -78,6 +85,8 @@ pub struct Station {
     pub name: String,
     pub open: bool,
     pub direct: bool,
+    pub media: Option<(String, String)>,
+    pub hot: Option<Arc<hot::Hot>>,
     pub sources: Vec<Arc<Source>>,
     pub cache: PathBuf,
     index: RwLock<Arc<Index>>,
@@ -141,10 +150,19 @@ pub async fn run(a: StationArgs) -> Result<()> {
         .map(|l| Source::parse(l, a.alist_token.clone(), bucket.as_ref()).map(Arc::new))
         .collect::<Result<Vec<_>>>()?;
 
+    let media = match (&a.media_url, &a.media_secret) {
+        (Some(u), Some(s)) if !u.is_empty() && !s.is_empty() => Some((u.trim_end_matches('/').to_string(), s.clone())),
+        _ => None,
+    };
+    let hot = if sources.iter().any(|s| s.is_bucket()) && a.hot_mb > 0 {
+        Some(hot::Hot::open(cache.join("hot"), a.hot_mb * 1024 * 1024)?)
+    } else {
+        None
+    };
     tracing::info!("scanning {} source(s)", sources.len());
     let first = scan::scan(&a.name, &sources, &cache).await?;
     tracing::info!("{} tracks, {} covers", first.items.len(), first.covers.len());
-    let st = Arc::new(Station { name: a.name.clone(), open: a.open, direct: !a.relay, sources, cache, index: RwLock::new(Arc::new(first)) });
+    let st = Arc::new(Station { name: a.name.clone(), open: a.open, direct: !a.relay, media, hot, sources, cache, index: RwLock::new(Arc::new(first)) });
 
     let (ws, http) = hub_urls(&a.hub);
     let shown = a.public.as_deref().map(|p| p.trim_end_matches('/').to_string()).unwrap_or(http);
