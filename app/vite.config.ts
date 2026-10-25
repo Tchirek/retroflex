@@ -6,6 +6,7 @@ const hub = process.env.RETROFLEX_DEV_HUB ?? "http://127.0.0.1:7746";
 
 export default defineConfig({
   plugins: [svelte()],
+  define: { __APP_VERSION__: JSON.stringify(process.env.npm_package_version ?? "0.0.0") },
   clearScreen: false,
   server: {
     port: 5173,
