@@ -46,7 +46,24 @@ body {
 
 #app {
   position: fixed;
-  inset: 0;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: var(--vvh, 100%);
+}
+
+/* 移ろいの　間合いは短く　しなやかに */
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation-duration: 0.28s;
+}
+::view-transition-group(cover) {
+  animation-duration: 0.46s;
+  animation-timing-function: cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+::view-transition-old(cover),
+::view-transition-new(cover) {
+  animation-duration: 0.46s;
 }
 
 button {
@@ -106,6 +123,13 @@ img {
 .icon-btn.on {
   color: var(--fg);
   background: var(--glass-2);
+}
+
+@media (hover: none) {
+  .icon-btn:hover:not(.on) {
+    color: var(--fg-2);
+    background: none;
+  }
 }
 
 .scroll {

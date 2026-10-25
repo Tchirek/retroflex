@@ -1,6 +1,10 @@
 <script lang="ts">
-  import { onMount } from "svelte";
-  import { fade } from "svelte/transition";
+  import { flushSync, onMount } from "svelte";
+  import { fade, fly } from "svelte/transition";
+  import { haptic } from "./lib/haptics";
+  import { listenDeepLinks, offerApp } from "./lib/deeplink";
+  import { isApp, openExternal } from "./lib/links";
+  import { checkUpdate, type Update } from "./lib/update";
   import { openRoom, openStations, Station, type Snap, type Track } from "./lib/api";
   import { blurs } from "./lib/art.svelte";
   import { derive, newSecret } from "./lib/crypto";
@@ -51,6 +55,7 @@
   let panel = $state<Panel>(initial.kind === "station" ? "library" : "lyrics");
   let view = $state<"now" | Panel>(initial.kind === "station" ? "library" : "now");
   let probing = $state(initial.kind === "none");
+  let update = $state<Update | null>(null);
   let wide = $state(true);
   let pending: { tracks: Snap[]; mode: Mode } | null = null;
   const lyricCache = new Map<string, LyricData | null>();
@@ -82,6 +87,16 @@
 
   onMount(() => {
     startFrames();
+    // 鍵盤の　出入りに合わせ　丈を変う
+    const vv = window.visualViewport;
+    const fit = () => {
+      if (!vv) return;
+      document.documentElement.style.setProperty("--vvh", `${Math.round(vv.height)}px`);
+      if (vv.offsetTop > 0 || window.scrollY > 0) window.scrollTo(0, 0);
+    };
+    vv?.addEventListener("resize", fit);
+    vv?.addEventListener("scroll", fit);
+    fit();
     const mq = matchMedia("(min-width: 900px)");
     wide = mq.matches;
     mq.onchange = () => (wide = mq.matches);
@@ -90,9 +105,15 @@
       if (target.kind === "station") browse();
     };
     if (initial.kind === "none") probe();
+    if (isApp) {
+      listenDeepLinks((text) => onlink(text));
+      checkUpdate(__APP_VERSION__).then((u) => (update = u));
+    } else offerApp(initial);
     addEventListener("hashchange", onhash);
     addEventListener("keydown", keys);
     return () => {
+      vv?.removeEventListener("resize", fit);
+      vv?.removeEventListener("scroll", fit);
       removeEventListener("hashchange", onhash);
       removeEventListener("keydown", keys);
     };
@@ -223,15 +244,11 @@
     const at = Math.max(0, room.queue.findIndex((q) => q.qid === room!.cur));
     return new Set(room.queue.slice(room.cur == null ? room.queue.length : at).map((q) => q.id));
   });
+  // 押した手の　思いが先に　形とる
   let guess = $state<{ key: string; on: boolean; at: number } | null>(null);
 
-  $effect(() => {
-    void room?.queue;
-    guess = null;
-  });
-
   function queued(ids: string[]): boolean {
-    if (guess && guess.key === ids.join() && performance.now() - guess.at < 2000) return guess.on;
+    if (guess && guess.key === ids.join() && performance.now() - guess.at < 6000) return guess.on;
     return ids.length > 0 && ids.every((id) => lineup.has(id));
   }
 
@@ -284,19 +301,64 @@
     else if (e.code === "ArrowLeft" && e.shiftKey) room.prev();
   }
 
+  // 頁の順　左へ右へと　指が繰る
+  type View = "now" | Panel;
+  const ORDER: View[] = ["now", "lyrics", "chat", "queue", "library"];
+  let slide = $state(0);
+
+  function usable(v: View): boolean {
+    if (v === "chat" || v === "queue") return !!room;
+    if (v === "library") return !!station;
+    return true;
+  }
+
+  function turn(next: View) {
+    if (next === view || !usable(next)) return;
+    slide = Math.sign(ORDER.indexOf(next) - ORDER.indexOf(view));
+    haptic();
+    const morph = next === "now" || view === "now";
+    const vt = (document as Document & { startViewTransition?: (cb: () => void) => unknown }).startViewTransition;
+    if (morph && vt) {
+      vt.call(document, () => {
+        view = next;
+        flushSync();
+      });
+    } else view = next;
+  }
+
   function tab(p: Panel) {
-    if (wide) panel = p;
-    else view = view === p ? "now" : p;
+    if (wide) {
+      if (panel !== p) haptic();
+      panel = p;
+    } else turn(view === p ? "now" : p);
+  }
+
+  let touch: { x: number; y: number; t: number } | null = null;
+  function swipeStart(e: TouchEvent) {
+    const el = e.target as HTMLElement;
+    touch = el.closest("input, textarea, .progress, .bar, .seg") ? null : { x: e.touches[0].clientX, y: e.touches[0].clientY, t: performance.now() };
+  }
+  function swipeEnd(e: TouchEvent) {
+    if (!touch) return;
+    const dx = e.changedTouches[0].clientX - touch.x;
+    const dy = e.changedTouches[0].clientY - touch.y;
+    const fast = performance.now() - touch.t < 700;
+    touch = null;
+    if (!fast || Math.abs(dx) < 60 || Math.abs(dx) < Math.abs(dy) * 1.6) return;
+    const step = dx < 0 ? 1 : -1;
+    let i = ORDER.indexOf(view) + step;
+    while (i >= 0 && i < ORDER.length && !usable(ORDER[i])) i += step;
+    if (i >= 0 && i < ORDER.length) turn(ORDER[i]);
   }
 
   const shown = $derived<Panel>(wide ? panel : view === "now" ? "lyrics" : view);
   const transport = $derived({
     playing: room?.playing ?? false,
     disabled: !current,
-    onplay: () => (player?.blocked ? player.unlock() : room?.play()),
-    onpause: () => room?.pause(),
-    onnext: () => room?.next(),
-    onprev: () => room?.prev(),
+    onplay: () => (haptic(), player?.blocked ? player.unlock() : room?.play()),
+    onpause: () => (haptic(), room?.pause()),
+    onnext: () => (haptic(), room?.next()),
+    onprev: () => (haptic(), room?.prev()),
   });
 </script>
 
@@ -327,7 +389,7 @@
     {@render tabs()}
   </main>
 {:else}
-  <main class="phone" class:full={view === "now"}>
+  <main class="phone" class:full={view === "now"} ontouchstart={swipeStart} ontouchend={swipeEnd}>
     {#if view === "now"}
       <div class="art"><Cover {station} cover={current?.cover} playing={room?.playing ?? false} /></div>
       <div class="row">
@@ -339,19 +401,19 @@
       </div>
     {:else if view === "lyrics"}
       <header class="mini">
-        <span class="thumb"><Art {station} cover={current?.cover} full eager /></span>
+        <button class="thumb" aria-label="Now playing" onclick={() => turn("now")}><Art {station} cover={current?.cover} full eager /></button>
         <div class="meta">
           <div class="title ellipsis">{current?.title ?? ""}</div>
           <div class="artist ellipsis">{current?.artist ?? ""}</div>
         </div>
         {#if room}<Members {room} onshare={share} />{/if}
       </header>
-      <section class="pane" in:fade={{ duration: 160 }}>
+      <section class="pane" in:fly={{ x: slide * 32, duration: 260, opacity: 0 }}>
         {@render pane(view)}
       </section>
     {:else}
       {#if view === "chat"}{@render dock()}{/if}
-      <section class="pane tall" class:talk={view === "chat"} in:fade={{ duration: 160 }}>
+      <section class="pane tall" class:talk={view === "chat"} in:fly={{ x: slide * 32, duration: 260, opacity: 0 }}>
         {@render pane(view)}
       </section>
     {/if}
@@ -369,7 +431,7 @@
 {#snippet dock()}
   <!-- 小さき帯　今鳴る歌を　手のひらに -->
   <div class="dock">
-    <button class="who" aria-label="Now playing" onclick={() => (view = "now")}>
+    <button class="who" aria-label="Now playing" onclick={() => turn("now")}>
       <span class="thumb small"><Art {station} cover={current?.cover} full eager /></span>
       <span class="meta">
         <span class="title ellipsis">{current?.title ?? ""}</span>
@@ -430,6 +492,19 @@
     </button>
   </nav>
 {/snippet}
+
+{#if update}
+  <!-- 新しき　版あり釦　ひとつだけ -->
+  <button
+    class="update"
+    aria-label="Update"
+    transition:fade={{ duration: 200 }}
+    onclick={() => {
+      openExternal(update!.url);
+      update = null;
+    }}><Icon name="download" size={15} stroke={2} />{update.version}</button
+  >
+{/if}
 
 {#if player?.blocked}
   <button class="unlock" aria-label="Listen" onclick={() => player?.unlock()} transition:fade={{ duration: 250 }}>
@@ -587,6 +662,15 @@
   .phone .panel {
     max-width: none;
   }
+  /* 盤ひとつ　小さき窓から　大きな窓へ */
+  .phone .art :global(.cover),
+  .phone .thumb {
+    view-transition-name: cover;
+  }
+  .mini .thumb {
+    padding: 0;
+    cursor: pointer;
+  }
   .phone .pane.talk {
     padding-bottom: 10px;
   }
@@ -653,6 +737,26 @@
     height: 72px;
     justify-content: flex-end;
     flex: none;
+  }
+
+  .update {
+    position: fixed;
+    top: calc(var(--top) + 10px);
+    left: 50%;
+    z-index: 45;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    height: 30px;
+    padding: 0 12px 0 10px;
+    transform: translateX(-50%);
+    border-radius: 999px;
+    font-size: 12.5px;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+    color: #111;
+    background: rgba(255, 255, 255, 0.92);
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
   }
 
   .unlock {
