@@ -13,7 +13,7 @@ use crate::util::{key_hash, same};
 
 #[derive(Deserialize)]
 pub struct Pass {
-    k: Option<String>,
+    pub k: Option<String>,
     #[serde(default)]
     thumb: Option<u8>,
     #[serde(default)]
@@ -23,7 +23,7 @@ pub struct Pass {
 }
 
 // 合鍵か　部屋の札かを　改める
-fn authorize(hub: &Hub, station: &str, k: Option<&str>) -> Result<Arc<Link>, StatusCode> {
+pub fn authorize(hub: &Hub, station: &str, k: Option<&str>) -> Result<Arc<Link>, StatusCode> {
     let k = k.unwrap_or("");
     let link = hub.stations.get(station);
     if let Some((room, ticket)) = k.split_once('.') {

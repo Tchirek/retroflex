@@ -2,6 +2,7 @@ mod assets;
 mod proxy;
 mod rooms;
 mod stations;
+mod translate;
 
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -15,6 +16,7 @@ use tower_http::cors::CorsLayer;
 
 use rooms::{Invites, Rooms};
 use stations::Stations;
+use translate::Translator;
 
 #[derive(Args)]
 pub struct HubArgs {
@@ -30,12 +32,13 @@ pub struct Hub {
     stations: Stations,
     rooms: Rooms,
     invites: Invites,
+    translator: Translator,
     token: Arc<str>,
 }
 
 // 辻に立ち　行き交う声を　繋ぐのみ
 pub async fn run(a: HubArgs) -> Result<()> {
-    let hub = Hub { stations: Stations::default(), rooms: Rooms::default(), invites: Invites::default(), token: a.token.into() };
+    let hub = Hub { stations: Stations::default(), rooms: Rooms::default(), invites: Invites::default(), translator: Translator::default(), token: a.token.into() };
 
     let clock = hub.rooms.clone();
     let stations = hub.stations.clone();
@@ -60,6 +63,7 @@ pub async fn run(a: HubArgs) -> Result<()> {
         .route("/api/s/{station}/audio/{track}", get(proxy::audio))
         .route("/api/s/{station}/cover/{cover}", get(proxy::cover))
         .route("/api/s/{station}/lyrics/{track}", get(proxy::lyrics))
+        .route("/api/s/{station}/lyrics/{track}/to/{lang}", get(translate::lyrics))
         .route("/api/rooms", post(rooms::create))
         .route("/api/rooms/{id}", get(rooms::probe))
         .route("/api/rooms/{id}/ws", get(rooms::join))
