@@ -14,6 +14,9 @@
     onadd,
     queued,
     toggle,
+    nowId,
+    playing = false,
+    onplaypause,
   }: {
     tracks: Track[];
     station: Station | null;
@@ -22,6 +25,9 @@
     onadd: (t: Snap[], mode: Mode) => void;
     queued: (ids: string[]) => boolean;
     toggle: (t: Snap[]) => void;
+    nowId?: string;
+    playing?: boolean;
+    onplaypause?: () => void;
   } = $props();
 </script>
 
@@ -29,12 +35,13 @@
 <div class="rows">
   {#each tracks as t, i (t.id)}
     {@const on = queued([t.id])}
-    <div class="row" class:on>
-      <button class="hit" onclick={() => onadd([snap(t)], "now")} aria-label={t.title}>
+    {@const here = t.id === nowId}
+    <div class="row" class:on class:here>
+      <button class="hit" onclick={() => (here && onplaypause ? onplaypause() : onadd([snap(t)], "now"))} aria-label={t.title}>
         {#if art}
-          <span class="lead art"><Art {station} cover={t.cover} /><span class="go"><Icon name="play" size={16} /></span></span>
+          <span class="lead art"><Art {station} cover={t.cover} /><span class="go"><Icon name={here && playing ? "pause" : "play"} size={16} /></span></span>
         {:else}
-          <span class="lead no"><span class="n">{numbered ? (t.track ?? i + 1) : ""}</span><span class="go"><Icon name="play" size={15} /></span></span>
+          <span class="lead no"><span class="n">{numbered ? (t.track ?? i + 1) : ""}</span><span class="go"><Icon name={here && playing ? "pause" : "play"} size={15} /></span></span>
         {/if}
         <span class="meta">
           <span class="title ellipsis">{t.title}</span>
@@ -123,6 +130,13 @@
   .title {
     font-weight: 600;
     font-size: 14.5px;
+  }
+  .here .title {
+    color: #fff;
+    text-shadow: 0 0 18px rgba(255, 255, 255, 0.35);
+  }
+  .here .sub {
+    color: var(--fg);
   }
   .sub {
     font-size: 13px;

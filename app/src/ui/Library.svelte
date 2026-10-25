@@ -14,15 +14,28 @@
     onadd,
     queued,
     toggle,
+    nowId,
+    playing,
+    onplaypause,
   }: {
     tracks: Track[];
     station: Station | null;
     onadd: (t: Snap[], mode: Mode) => void;
     queued: (ids: string[]) => boolean;
     toggle: (t: Snap[]) => void;
+    nowId?: string;
+    playing: boolean;
+    onplaypause: () => void;
   } = $props();
 
   const ids = (list: Track[]) => list.map((t) => t.id);
+  const live = (list: Track[]) => !!nowId && list.some((t) => t.id === nowId);
+
+  // 鳴る盤は　止めも出来るぞ　同じ釦
+  function start(list: Track[]) {
+    if (live(list)) onplaypause();
+    else take(list, "now");
+  }
 
   let query = $state("");
   let open = $state<Album | null>(null);
@@ -58,8 +71,9 @@
 
   <div class="body scroll">
     {#if query}
-      <div in:fade={{ duration: 120 }}><Rows tracks={found} {station} {onadd} {queued} {toggle} /></div>
+      <div in:fade={{ duration: 120 }}><Rows tracks={found} {station} {onadd} {queued} {toggle} {nowId} {playing} {onplaypause} /></div>
     {:else if open}
+      {@const busy = live(open.tracks) && playing}
       <!-- 盤を開き　針を落とすも　積むも良し -->
       <div class="album" in:fly={{ x: 24, duration: 260 }}>
         <div class="hero">
@@ -69,21 +83,24 @@
             <div class="by">{open.artist}</div>
             {#if open.year}<div class="year">{open.year}</div>{/if}
             <div class="acts">
-              <button class="pill solid" aria-label="Play album" onclick={() => take(open!.tracks, "now")}><Icon name="play" size={18} /></button>
+              <button class="pill solid" aria-label={busy ? "Pause" : "Play album"} onclick={() => start(open!.tracks)}>
+                <Icon name={busy ? "pause" : "play"} size={18} />
+              </button>
               <button class="pill" aria-label="Play album next" onclick={() => take(open!.tracks, "next")}><Icon name="playnext" size={18} /></button>
               <AddToggle variant="pill" on={queued(ids(open.tracks))} onclick={() => toggle(open!.tracks.map(snap))} />
             </div>
           </div>
         </div>
-        <Rows tracks={open.tracks} {station} art={false} numbered {onadd} {queued} {toggle} />
+        <Rows tracks={open.tracks} {station} art={false} numbered {onadd} {queued} {toggle} {nowId} {playing} {onplaypause} />
       </div>
     {:else if songs}
-      <div in:fade={{ duration: 120 }}><Rows {tracks} {station} {onadd} {queued} {toggle} /></div>
+      <div in:fade={{ duration: 120 }}><Rows {tracks} {station} {onadd} {queued} {toggle} {nowId} {playing} {onplaypause} /></div>
     {:else}
       <!-- 背表紙に　触れれば今を　鳴らす釦 -->
       <div class="grid" in:fade={{ duration: 120 }}>
         {#each shelf as a (a.key)}
           {@const on = queued(ids(a.tracks))}
+          {@const busy = live(a.tracks) && playing}
           <div class="card">
             <button class="face" onclick={() => (open = a)} aria-label={a.title}>
               <span class="cover"><Art {station} cover={a.cover} /></span>
@@ -93,7 +110,9 @@
             <span class="over">
               <span class="quick" class:on>
                 <span class="reveal"><AddToggle variant="dot" size={16} {on} onclick={() => toggle(a.tracks.map(snap))} /></span>
-                <button class="dot play" aria-label="Play album" onclick={() => take(a.tracks, "now")}><Icon name="play" size={18} /></button>
+                <button class="dot play" aria-label={busy ? "Pause" : "Play album"} onclick={() => start(a.tracks)}>
+                  <Icon name={busy ? "pause" : "play"} size={18} />
+                </button>
               </span>
             </span>
           </div>
@@ -216,6 +235,7 @@
     aspect-ratio: 1;
     pointer-events: none;
   }
+  /* 勾ひとつ　手を離せばこそ　釦の座へ */
   .quick {
     position: absolute;
     right: 9px;
@@ -240,7 +260,7 @@
       opacity 0.15s,
       transform 0.25s var(--spring),
       background 0.15s;
-    pointer-events: auto;
+    pointer-events: none;
   }
   .dot.play {
     width: 44px;
@@ -256,12 +276,19 @@
     transform: translateY(6px);
     transition:
       opacity 0.15s,
-      transform 0.25s var(--spring);
+      transform 0.32s var(--ease);
+  }
+  .quick.on .reveal {
+    opacity: 1;
+    transform: translateX(45px);
   }
   .card:hover .dot,
+  .dot:focus-visible {
+    opacity: 1;
+    transform: none;
+    pointer-events: auto;
+  }
   .card:hover .reveal,
-  .quick.on .reveal,
-  .dot:focus-visible,
   .reveal:focus-within {
     opacity: 1;
     transform: none;
@@ -270,8 +297,8 @@
     transform: scale(0.9);
   }
   @media (hover: none) {
-    .dot,
-    .reveal {
+    .reveal,
+    .quick.on .reveal {
       opacity: 1;
       transform: none;
     }
