@@ -43,7 +43,7 @@
     transition:
       background 0.22s var(--ease),
       color 0.22s var(--ease),
-      transform 0.25s var(--spring),
+      transform 0.25s var(--ease),
       opacity 0.15s;
   }
   .plain {
@@ -77,7 +77,7 @@
     transform: scale(0.88);
   }
   .add.pop {
-    animation: pop 0.38s var(--spring);
+    animation: pop 0.38s var(--ease);
   }
   @keyframes pop {
     35% {
@@ -99,7 +99,7 @@
   .plus {
     transform-origin: 12px 12px;
     transition:
-      transform 0.3s var(--spring),
+      transform 0.3s var(--ease),
       opacity 0.18s;
   }
   .on .plus {
