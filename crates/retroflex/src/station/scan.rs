@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -266,8 +266,69 @@ pub async fn scan(name: &str, sources: &[Arc<Source>], cache: &Path) -> Result<I
     std::fs::write(&tmp, serde_json::to_vec(&fresh)?)?;
     std::fs::rename(&tmp, &memo_path)?;
 
-    let library = serde_json::to_vec(&Library { station: name.to_string(), tracks })?;
+    let blurs = blurs(sources, &covers, cache, &gate).await;
+    let library = serde_json::to_vec(&Library { station: name.to_string(), tracks, blurs })?;
     Ok(Index { library: Bytes::from(library), items, covers })
+}
+
+// 霞む絵の　小さき影を　先に置く
+fn blur_of(bytes: &[u8]) -> Result<String> {
+    let img = image::load_from_memory(bytes)?.thumbnail(20, 20).to_rgb8();
+    let mut out = Vec::new();
+    image::codecs::jpeg::JpegEncoder::new_with_quality(&mut out, 60).encode_image(&img)?;
+    Ok(format!("data:image/jpeg;base64,{}", data_encoding::BASE64.encode(&out)))
+}
+
+// 絵の在り処　棚か懐か　確かめて
+fn asset_bytes(sources: &[Arc<Source>], asset: &Asset) -> Result<Vec<u8>> {
+    Ok(match asset {
+        Asset::File { src, rel } => sources[*src].read_all(rel, 32 * 1024 * 1024)?,
+        Asset::Cached(path) => std::fs::read(path)?,
+        Asset::Inline(text) => text.clone().into_bytes(),
+    })
+}
+
+// 盤ごとに　霞をひとつ　覚えおく
+async fn blurs(
+    sources: &[Arc<Source>],
+    covers: &HashMap<String, Asset>,
+    cache: &Path,
+    gate: &Arc<Semaphore>,
+) -> BTreeMap<String, String> {
+    let path = cache.join("blurs.json");
+    let mut known: BTreeMap<String, String> =
+        std::fs::read(&path).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default();
+    known.retain(|k, _| covers.contains_key(k));
+    let mut jobs = Vec::new();
+    for (cid, asset) in covers {
+        if known.contains_key(cid) {
+            continue;
+        }
+        let asset = match asset {
+            Asset::File { src, rel } => Asset::File { src: *src, rel: rel.clone() },
+            Asset::Cached(p) => Asset::Cached(p.clone()),
+            Asset::Inline(t) => Asset::Inline(t.clone()),
+        };
+        let (sources, gate, cid) = (sources.to_vec(), gate.clone(), cid.clone());
+        jobs.push(tokio::spawn(async move {
+            let _permit = gate.acquire_owned().await;
+            let made = tokio::task::spawn_blocking(move || asset_bytes(&sources, &asset).and_then(|b| blur_of(&b))).await;
+            (cid, made)
+        }));
+    }
+    for job in jobs {
+        match job.await {
+            Ok((cid, Ok(Ok(data)))) => {
+                known.insert(cid, data);
+            }
+            Ok((cid, Ok(Err(err)))) => tracing::warn!("blur {cid}: {err:#}"),
+            _ => {}
+        }
+    }
+    if let Ok(bytes) = serde_json::to_vec(&known) {
+        let _ = std::fs::write(&path, bytes);
+    }
+    known
 }
 
 // 声多き　ひとつの盤は　皆のもの
