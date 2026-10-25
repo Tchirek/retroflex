@@ -1,3 +1,5 @@
+mod offline;
+
 // 六つの窓　同じ景色を　映しけり
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -19,7 +21,13 @@ pub fn run() {
         .plugin(tauri_plugin_deep_link::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_haptics::init())
+        .invoke_handler(tauri::generate_handler![offline::kept, offline::keep, offline::forget])
         .setup(|_app| {
+            // 棚ひとつ　窓から覗く　許しあり
+            use tauri::Manager;
+            if let Ok(dir) = offline::shelf(_app.handle()) {
+                let _ = _app.asset_protocol_scope().allow_directory(dir, false);
+            }
             // 呼び名をば　この窓宛と　届け出る
             #[cfg(any(windows, target_os = "linux"))]
             {
