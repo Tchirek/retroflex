@@ -66,11 +66,14 @@
     border-radius: 6px;
     background: rgba(255, 255, 255, 0.18);
     overflow: hidden;
-    transition: background 0.2s;
+    transition:
+      height 0.25s var(--spring),
+      background 0.2s;
   }
   .bar:hover .track,
   .active .track {
-    background: rgba(255, 255, 255, 0.26);
+    height: 10px;
+    background: rgba(255, 255, 255, 0.24);
   }
   .fill {
     height: 100%;
