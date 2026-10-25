@@ -21,6 +21,7 @@ export class Player {
   readonly audio: HTMLAudioElement;
   private latency = 0;
   private src = "";
+  private relayed = new Set<string>();
   private timer = 0;
   private kick = 0;
   private ctx: AudioContext | null = null;
@@ -33,6 +34,14 @@ export class Player {
     const a = new Audio();
     a.crossOrigin = "anonymous";
     a.preload = "auto";
+    // 近道の　塞がる時は　回り道
+    a.addEventListener("error", () => {
+      const id = this.room.current?.id;
+      if (id && !this.relayed.has(id)) {
+        this.relayed.add(id);
+        this.align();
+      }
+    });
     a.addEventListener("ended", () => {
       if (this.room.cur != null) this.room.ended(this.room.cur);
     });
@@ -89,7 +98,7 @@ export class Player {
       }
       return;
     }
-    const url = st.audio(item.id);
+    const url = st.audio(item.id, this.relayed.has(item.id));
     if (url !== this.src) {
       this.src = url;
       a.src = url;

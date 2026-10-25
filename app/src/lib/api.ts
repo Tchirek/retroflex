@@ -28,8 +28,8 @@ export class Station {
     return `${this.hub}/api/s/${this.name}/${path}?k=${encodeURIComponent(this.pass)}${extra}`;
   }
 
-  audio(id: string): string {
-    return this.url(`audio/${id}`);
+  audio(id: string, relay = false): string {
+    return this.url(`audio/${id}`, relay ? "&relay=1" : "");
   }
 
   cover(id: string | undefined, thumb = true): string | undefined {
