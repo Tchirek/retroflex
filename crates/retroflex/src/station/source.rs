@@ -107,8 +107,12 @@ impl Source {
         }
     }
 
+    pub fn is_bucket(&self) -> bool {
+        matches!(self, Source::Bucket { .. })
+    }
+
     // 倉の札　前置きの名を　継ぎ足して
-    fn object_key(&self, rel: &str) -> String {
+    pub fn object_key(&self, rel: &str) -> String {
         match self {
             Source::Bucket { prefix, .. } if !prefix.is_empty() => format!("{prefix}/{rel}"),
             _ => rel.to_string(),

@@ -76,11 +76,17 @@ fn answer(st: &Station, op: &Op, range: Option<&str>) -> Result<Reply> {
     let index = st.index();
     match op {
         Op::Library => Ok(Reply::bytes("application/json", index.library.to_vec())),
-        Op::Audio { track } => {
+        Op::Audio { track, relay } => {
             let Some(item) = index.items.get(track) else { return Ok(Reply::empty(404)) };
-            if st.direct {
-                if let Some(url) = st.sources[item.src].direct_url(&item.rel) {
+            let source = &st.sources[item.src];
+            if !relay {
+                if let Some(url) = worker_url(st, source, &item.rel) {
                     return Ok(Reply::redirect(url));
+                }
+                if st.direct {
+                    if let Some(url) = source.direct_url(&item.rel) {
+                        return Ok(Reply::redirect(url));
+                    }
                 }
             }
             let size = item.size;
@@ -95,7 +101,16 @@ fn answer(st: &Station, op: &Op, range: Option<&str>) -> Result<Reply> {
                 None => (200, 0, size - 1),
             };
             let len = end - start + 1;
-            let body = st.sources[item.src].read_range(&item.rel, start, len)?;
+            let body = match (&st.hot, source.is_bucket()) {
+                (Some(hot), true) => match hot.read(track, start, len) {
+                    Some(body) => body,
+                    None => {
+                        hot.fill(track, source.clone(), item.rel.clone(), size);
+                        source.read_range(&item.rel, start, len)?
+                    }
+                },
+                _ => source.read_range(&item.rel, start, len)?,
+            };
             let mut headers = vec![
                 ("content-type".to_string(), item.mime.clone()),
                 ("content-length".to_string(), len.to_string()),
@@ -108,8 +123,10 @@ fn answer(st: &Station, op: &Op, range: Option<&str>) -> Result<Reply> {
         }
         Op::Cover { cover, thumb } => {
             let Some(asset) = index.covers.get(cover) else { return Ok(Reply::empty(404)) };
-            if let (false, true, Asset::File { src, rel }) = (*thumb, st.direct, asset) {
-                if let Some(url) = st.sources[*src].direct_url(rel) {
+            if let (false, Asset::File { src, rel }) = (*thumb, asset) {
+                let source = &st.sources[*src];
+                let url = worker_url(st, source, rel).or_else(|| st.direct.then(|| source.direct_url(rel)).flatten());
+                if let Some(url) = url {
                     return Ok(Reply::redirect(url));
                 }
             }
@@ -125,6 +142,31 @@ fn answer(st: &Station, op: &Op, range: Option<&str>) -> Result<Reply> {
             Ok(Reply::bytes("text/plain; charset=utf-8", text.into_bytes()))
         }
     }
+}
+
+// 番人へ　期限と印を　添えた道
+fn worker_url(st: &Station, source: &crate::station::source::Source, rel: &str) -> Option<String> {
+    let (base, secret) = st.media.as_ref()?;
+    if !source.is_bucket() {
+        return None;
+    }
+    let key = source.object_key(rel);
+    let exp = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).ok()?.as_secs() + 6 * 3600;
+    Some(format!("{base}/{}?exp={exp}&sig={}", encode_path(&key), media_sig(secret, &key, exp)))
+}
+
+// 名と刻　鍵で結びて　印とす
+pub fn media_sig(secret: &str, key: &str, exp: u64) -> String {
+    use hmac::{Hmac, KeyInit, Mac};
+    let mut mac = Hmac::<sha2::Sha256>::new_from_slice(secret.as_bytes()).expect("hmac key");
+    mac.update(format!("{key}\n{exp}").as_bytes());
+    data_encoding::HEXLOWER.encode(&mac.finalize().into_bytes())
+}
+
+fn encode_path(key: &str) -> String {
+    const SEG: &percent_encoding::AsciiSet =
+        &percent_encoding::NON_ALPHANUMERIC.remove(b'-').remove(b'_').remove(b'.').remove(b'~');
+    key.split('/').map(|s| percent_encoding::utf8_percent_encode(s, SEG).to_string()).collect::<Vec<_>>().join("/")
 }
 
 // 棚の奥　あるいは懐　取り出して
@@ -193,4 +235,15 @@ mod tests {
         assert_eq!(decode_text(&gbk), "[00:01.00]晚风");
         assert_eq!(decode_text("\u{feff}[ti:x]".as_bytes()), "[ti:x]");
     }
+
+    // 番人と　同じ筆にて　印を書く
+    #[test]
+    fn media_signature_matches_the_worker() {
+        assert_eq!(
+            media_sig("secret", "kksk/a b.m4a", 1700000000),
+            "8f4d78b85aa7db4ffd13c2b8042d7af09056bab8ab4e53ca916c3dbe1d10227a"
+        );
+        assert_eq!(encode_path("kksk/Tom & Jerry/01 x.m4a"), "kksk/Tom%20%26%20Jerry/01%20x.m4a");
+    }
+
 }
