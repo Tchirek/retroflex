@@ -2,6 +2,7 @@
   import type { Station } from "../lib/api";
   import { clock } from "../lib/library";
   import type { Room } from "../lib/room.svelte";
+  import Art from "./Art.svelte";
   import Icon from "./Icon.svelte";
 
   let { room, station }: { room: Room; station: Station | null } = $props();
@@ -15,14 +16,16 @@
     {@const by = room.members[item.by]?.profile}
     <div class="row" class:now={item.qid === room.cur} class:past={at >= 0 && i < at}>
       <button class="hit" onclick={() => room.play(item.qid)} aria-label={item.title}>
-        <span class="art">
-          {#if station?.cover(item.cover)}<img src={station.cover(item.cover)} alt="" loading="lazy" />{/if}
-        </span>
+        <span class="art"><Art {station} cover={item.cover} /></span>
         <span class="meta">
           <span class="title ellipsis">{item.title}</span>
           <span class="artist ellipsis">{item.artist}</span>
         </span>
-        {#if by}<span class="by" style:--hue={by.hue} title={by.nick}></span>{/if}
+        {#if item.auto}
+          <span class="auto"><Icon name="shuffle" size={15} /></span>
+        {:else if by}
+          <span class="by" style:--hue={by.hue}></span>
+        {/if}
         <span class="dur">{clock(item.duration)}</span>
       </button>
       <button class="icon-btn x" aria-label="Remove" onclick={() => room.remove(item.qid)}><Icon name="close" size={16} /></button>
@@ -70,11 +73,12 @@
     overflow: hidden;
     background: var(--glass-2);
   }
-  .art img {
-    width: 100%;
-    height: 100%;
-    object-fit: cover;
-    display: block;
+  .auto {
+    color: var(--fg-3);
+    flex: none;
+  }
+  .row.now .auto {
+    color: var(--fg-2);
   }
   .meta {
     flex: 1;
