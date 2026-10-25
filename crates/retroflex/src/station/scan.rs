@@ -72,6 +72,12 @@ struct Probed {
     lyrics: Option<String>,
 }
 
+// 歌か詞か　絵かを名前の　尾で知る
+pub fn is_media(rel: &str) -> bool {
+    let e = ext(rel);
+    AUDIO.iter().any(|(x, _)| *x == e) || IMAGE_EXTS.contains(&e.as_str()) || matches!(e.as_str(), "lrc" | "webp" | "cue")
+}
+
 fn ext(rel: &str) -> String {
     rel.rsplit_once('.').map(|(_, e)| e.to_ascii_lowercase()).unwrap_or_default()
 }
