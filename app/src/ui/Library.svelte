@@ -1,16 +1,28 @@
 <script lang="ts">
+  import { untrack } from "svelte";
+  import { SvelteSet } from "svelte/reactivity";
   import { fade, fly } from "svelte/transition";
   import { snap, type Snap, type Station, type Track } from "../lib/api";
-  import { albums, search, type Album } from "../lib/library";
+  import { backable } from "../lib/back.svelte";
   import { haptic } from "../lib/haptics";
+  import { albums, search, type Album } from "../lib/library";
+  import { listLink } from "../lib/link";
   import { isApp, openExternal } from "../lib/links";
-  import { dropPlaylist, playlists, type Playlist } from "../lib/playlists.svelte";
+  import { keep } from "../lib/offline.svelte";
+  import { press } from "../lib/press";
+  import { dropPlaylists, playlists } from "../lib/playlists.svelte";
   import type { Mode } from "../lib/room.svelte";
+  import { sendLink } from "../lib/share";
   import AddToggle from "./AddToggle.svelte";
   import Art from "./Art.svelte";
+  import Confirm from "./Confirm.svelte";
   import Icon from "./Icon.svelte";
   import Keep from "./Keep.svelte";
+  import Picks from "./Picks.svelte";
   import Rows from "./Rows.svelte";
+  import Tick from "./Tick.svelte";
+
+  type Sheet = { id?: string; at: number; tracks: Snap[] };
 
   let {
     tracks,
@@ -21,6 +33,7 @@
     nowId,
     playing,
     onplaypause,
+    focus = null,
   }: {
     tracks: Track[];
     station: Station | null;
@@ -30,6 +43,7 @@
     nowId?: string;
     playing: boolean;
     onplaypause: () => void;
+    focus?: Sheet | null;
   } = $props();
 
   const ids = (list: Track[]) => list.map((t) => t.id);
@@ -42,15 +56,28 @@
   }
 
   type Shelf = "albums" | "songs" | "lists";
-  const SHELVES: Shelf[] = ["albums", "songs", "lists"];
+  const SHELVES: Shelf[] = isApp ? ["albums", "songs", "lists"] : ["albums", "songs"];
   let query = $state("");
   let open = $state<Album | null>(null);
-  let list = $state<Playlist | null>(null);
+  let list = $state<Sheet | null>(null);
   let mode = $state<Shelf>("albums");
+  let shared = $state(false);
   const shelf = $derived(albums(tracks));
   const found = $derived(search(tracks, query));
   const byId = $derived(new Map(tracks.map((t) => [t.id, t])));
   const mine = $derived(playlists.filter((p) => !station || p.station === station.name));
+
+  // 届いた束　そのまま開いて　見せにゆく
+  $effect(() => {
+    const f = focus;
+    if (!f) return;
+    untrack(() => {
+      query = "";
+      open = null;
+      if (f.id) mode = "lists";
+      list = f;
+    });
+  });
 
   // 札だけの　歌も棚から　身を借りる
   function full(s: Snap[]): Track[] {
@@ -79,6 +106,76 @@
   function take(list: Track[], mode: Mode) {
     onadd(list.map(snap), mode);
   }
+
+  async function share(lt: Track[]) {
+    if (!station || !(await sendLink(listLink(station.hub, station.name, ids(lt))))) return;
+    haptic();
+    shared = true;
+    setTimeout(() => (shared = false), 1600);
+  }
+
+  // 長押しで　選ぶ印を　ひとつずつ
+  const picked = new SvelteSet<string>();
+  let picking = $state(false);
+  const scope = $derived(query ? "found" : open ? "album" : list ? "list" : mode);
+
+  function begin(key: string) {
+    picking = true;
+    picked.add(key);
+  }
+  function flip(key: string) {
+    haptic();
+    if (picked.has(key)) picked.delete(key);
+    else picked.add(key);
+    if (!picked.size) leave();
+  }
+  function leave() {
+    picking = false;
+    picked.clear();
+  }
+  $effect(() => {
+    void scope;
+    void open;
+    void list;
+    untrack(leave);
+  });
+
+  backable(() => picking, leave);
+  backable(
+    () => !!(open || list),
+    () => ((open = null), (list = null)),
+  );
+
+  const pool = $derived.by((): Track[] => {
+    if (scope === "found") return found;
+    if (scope === "album") return open?.tracks ?? [];
+    if (scope === "list") return full(list?.tracks ?? []);
+    return tracks;
+  });
+  const chosen = $derived.by((): Track[] => {
+    if (!picking) return [];
+    if (scope === "albums") return shelf.filter((a) => picked.has(a.key)).flatMap((a) => a.tracks);
+    if (scope === "lists") return mine.filter((p) => picked.has(p.id)).flatMap((p) => full(p.tracks));
+    return pool.filter((t) => picked.has(t.id));
+  });
+
+  function queueChosen() {
+    take(chosen, "end");
+    haptic();
+    leave();
+  }
+  function keepChosen() {
+    if (station) keep(station, chosen);
+    haptic();
+    leave();
+  }
+  function dropChosen() {
+    dropPlaylists(picked);
+    leave();
+  }
+
+  const rowsPick = $derived(picking ? picked : null);
+  const pick = (id: string) => (picking ? flip(id) : begin(id));
 </script>
 
 <div class="library">
@@ -95,13 +192,15 @@
       <span class="knob"></span>
       <button class:on={mode === "albums"} aria-label="Albums" onclick={() => shelve("albums")}><Icon name="library" size={18} /></button>
       <button class:on={mode === "songs"} aria-label="Songs" onclick={() => shelve("songs")}><Icon name="songs" size={18} /></button>
-      <button class:on={mode === "lists"} aria-label="Saved lists" onclick={() => shelve("lists")}><Icon name="lists" size={18} /></button>
+      {#if isApp}<button class:on={mode === "lists"} aria-label="Saved lists" onclick={() => shelve("lists")}><Icon name="lists" size={18} /></button>{/if}
     </div>
   </div>
 
   <div class="body scroll">
     {#if query}
-      <div in:fade={{ duration: 120 }}><Rows tracks={found} {station} {onadd} {queued} {toggle} {nowId} {playing} {onplaypause} /></div>
+      <div in:fade={{ duration: 120 }}>
+        <Rows tracks={found} {station} {onadd} {queued} {toggle} {nowId} {playing} {onplaypause} picked={rowsPick} onpick={pick} />
+      </div>
     {:else if open}
       {@const busy = live(open.tracks) && playing}
       <!-- 盤を開き　針を落とすも　積むも良し -->
@@ -122,11 +221,12 @@
             </div>
           </div>
         </div>
-        <Rows tracks={open.tracks} {station} art={false} numbered {onadd} {queued} {toggle} {nowId} {playing} {onplaypause} />
+        <Rows tracks={open.tracks} {station} art={false} numbered {onadd} {queued} {toggle} {nowId} {playing} {onplaypause} picked={rowsPick} onpick={pick} />
       </div>
     {:else if list}
       {@const lt = full(list.tracks)}
       {@const busy = live(lt) && playing}
+      {@const saved = list.id}
       <!-- 手帳から　選びし束を　また鳴らす -->
       <div class="album" in:fly={{ x: 24, duration: 260 }}>
         <div class="hero">
@@ -142,33 +242,41 @@
               </button>
               <AddToggle variant="pill" on={queued(ids(lt))} onclick={() => toggle(lt.map(snap))} />
               {#if isApp && station}<Keep {station} tracks={lt} variant="pill" />{/if}
-              <button
-                class="pill"
-                aria-label="Delete list"
-                onclick={() => {
-                  dropPlaylist(list!.id);
-                  list = null;
-                }}><Icon name="trash" size={18} /></button
-              >
+              <button class="pill" aria-label="Share list" onclick={() => share(lt)}>
+                <Icon name={shared ? "check" : "share"} size={18} />
+              </button>
+              {#if isApp && saved}
+                <Confirm
+                  variant="pill"
+                  label="Delete list"
+                  onconfirm={() => {
+                    dropPlaylists([saved]);
+                    list = null;
+                  }}
+                />
+              {/if}
             </div>
           </div>
         </div>
-        <Rows tracks={lt} {station} {onadd} {queued} {toggle} {nowId} {playing} {onplaypause} />
+        <Rows tracks={lt} {station} {onadd} {queued} {toggle} {nowId} {playing} {onplaypause} picked={rowsPick} onpick={pick} />
       </div>
     {:else if mode === "songs"}
-      <div in:fade={{ duration: 120 }}><Rows {tracks} {station} {onadd} {queued} {toggle} {nowId} {playing} {onplaypause} /></div>
+      <div in:fade={{ duration: 120 }}>
+        <Rows {tracks} {station} {onadd} {queued} {toggle} {nowId} {playing} {onplaypause} picked={rowsPick} onpick={pick} />
+      </div>
     {:else if mode === "lists"}
       <div class="grid" in:fade={{ duration: 120 }}>
         {#each mine as p (p.id)}
           {@const lt = full(p.tracks)}
-          <div class="card">
-            <button class="face" onclick={() => (list = p)} aria-label={lt[0]?.title}>
+          <div class="card" class:sel={picked.has(p.id)}>
+            <button class="face" use:press={() => begin(p.id)} onclick={() => (picking ? flip(p.id) : (list = p))} aria-label={lt[0]?.title}>
               <span class="cover" class:mosaic={lt.length >= 4}>
                 {#each lt.slice(0, lt.length >= 4 ? 4 : 1) as t (t.id)}<span><Art {station} cover={t.cover} /></span>{/each}
               </span>
               <span class="title ellipsis">{lt[0]?.title ?? ""}</span>
               <span class="sub ellipsis">{lt.length} · {stamp(p.at)}</span>
             </button>
+            {#if picking}<span class="mark"><Tick on={picked.has(p.id)} /></span>{/if}
           </div>
         {/each}
       </div>
@@ -178,20 +286,24 @@
         {#each shelf as a (a.key)}
           {@const on = queued(ids(a.tracks))}
           {@const busy = live(a.tracks) && playing}
-          <div class="card">
-            <button class="face" onclick={() => (open = a)} aria-label={a.title}>
+          <div class="card" class:sel={picked.has(a.key)}>
+            <button class="face" use:press={() => begin(a.key)} onclick={() => (picking ? flip(a.key) : (open = a))} aria-label={a.title}>
               <span class="cover"><Art {station} cover={a.cover} /></span>
               <span class="title ellipsis">{a.title}</span>
               <span class="sub ellipsis">{a.artist}</span>
             </button>
-            <span class="over">
-              <span class="quick" class:on>
-                <span class="reveal"><AddToggle variant="dot" size={16} {on} onclick={() => toggle(a.tracks.map(snap))} /></span>
-                <button class="dot play" aria-label={busy ? "Pause" : "Play album"} onclick={() => start(a.tracks)}>
-                  <Icon name={busy ? "pause" : "play"} size={18} />
-                </button>
+            {#if picking}
+              <span class="mark"><Tick on={picked.has(a.key)} /></span>
+            {:else}
+              <span class="over">
+                <span class="quick" class:on>
+                  <span class="reveal"><AddToggle variant="dot" size={16} {on} onclick={() => toggle(a.tracks.map(snap))} /></span>
+                  <button class="dot play" aria-label={busy ? "Pause" : "Play album"} onclick={() => start(a.tracks)}>
+                    <Icon name={busy ? "pause" : "play"} size={18} />
+                  </button>
+                </span>
               </span>
-            </span>
+            {/if}
           </div>
         {/each}
       </div>
@@ -204,10 +316,19 @@
       (Code). All rights reversed.
     </footer>
   </div>
+
+  {#if picking}
+    <Picks count={picked.size} onclose={leave}>
+      <button class="icon-btn" aria-label="Add to queue" onclick={queueChosen}><Icon name="plus" size={19} /></button>
+      {#if isApp && station}<button class="icon-btn" aria-label="Download" onclick={keepChosen}><Icon name="download" size={19} /></button>{/if}
+      {#if scope === "lists"}<Confirm label="Delete lists" onconfirm={dropChosen} size={19} />{/if}
+    </Picks>
+  {/if}
 </div>
 
 <style>
   .library {
+    position: relative;
     display: flex;
     flex-direction: column;
     height: 100%;
@@ -345,6 +466,7 @@
     min-width: 0;
     gap: 2px;
     text-align: left;
+    -webkit-touch-callout: none;
   }
   .cover {
     display: block;
@@ -356,11 +478,23 @@
     box-shadow: 0 10px 28px rgba(0, 0, 0, 0.3);
     transition: transform 0.3s var(--spring);
   }
-  .card:hover .cover {
-    transform: translateY(-2px);
+  @media (hover: hover) {
+    .card:hover .cover {
+      transform: translateY(-2px);
+    }
   }
   .face:active .cover {
     transform: scale(0.97);
+  }
+  /* 選ばれし　盤はわずかに　身を引きて */
+  .card.sel .cover {
+    transform: scale(0.94);
+  }
+  .mark {
+    position: absolute;
+    top: 8px;
+    left: 8px;
+    pointer-events: none;
   }
   .title {
     font-weight: 600;
@@ -484,6 +618,7 @@
   }
   .acts {
     display: flex;
+    flex-wrap: wrap;
     gap: 8px;
     margin-top: 14px;
   }
@@ -498,8 +633,10 @@
       transform 0.25s var(--spring),
       background 0.15s;
   }
-  .pill:hover {
-    background: var(--glass-3);
+  @media (hover: hover) {
+    .pill:hover {
+      background: var(--glass-3);
+    }
   }
   .pill.solid {
     background: #fff;

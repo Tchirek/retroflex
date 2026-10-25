@@ -30,10 +30,17 @@ export function savePlaylist(station: string, tracks: Snap[]): Playlist | null {
   return list;
 }
 
-export function dropPlaylist(id: string): void {
-  const i = playlists.findIndex((p) => p.id === id);
-  if (i >= 0) {
-    playlists.splice(i, 1);
-    persist();
-  }
+export function dropPlaylists(ids: Iterable<string>): void {
+  const gone = new Set(ids);
+  const keep = playlists.filter((p) => !gone.has(p.id));
+  if (keep.length === playlists.length) return;
+  playlists.splice(0, playlists.length, ...keep);
+  persist();
+}
+
+// 貰い物　同じ束なら　前のまま
+export function adoptPlaylist(station: string, tracks: Snap[]): Playlist | null {
+  const sig = tracks.map((t) => t.id).join();
+  const same = playlists.find((p) => p.station === station && p.tracks.map((t) => t.id).join() === sig);
+  return same ?? savePlaylist(station, tracks);
 }
