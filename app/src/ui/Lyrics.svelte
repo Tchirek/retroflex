@@ -1,6 +1,6 @@
 <script lang="ts">
   import { activeLine, type LyricLine, type Lyrics } from "../lib/lrc";
-  import Icon from "./Icon.svelte";
+  import Mark from "./Mark.svelte";
 
   let { lyrics, time, onseek }: { lyrics: Lyrics | null; time: number; onseek: (t: number) => void } = $props();
 
@@ -8,6 +8,7 @@
   let els: HTMLElement[] = $state([]);
   let tops = $state<number[]>([]);
   let manual = $state<number | null>(null);
+  let hover = $state(false);
   let idle = 0;
 
   // 前奏の　静けさにまた　点三つ
@@ -26,12 +27,16 @@
     queueMicrotask(() => (tops = els.slice(0, lines.length).map((e) => e?.offsetTop ?? 0)));
   });
 
+  function hold() {
+    clearTimeout(idle);
+    idle = window.setTimeout(() => (manual = null), 2600);
+  }
+
   // 指で繰る　しばしの後は　また歌へ
   function wheel(e: WheelEvent) {
     if (!lyrics?.synced) return;
     manual = (manual ?? shift) - e.deltaY;
-    clearTimeout(idle);
-    idle = window.setTimeout(() => (manual = null), 2600);
+    hold();
   }
 
   let touchY = 0;
@@ -43,8 +48,15 @@
     const y = e.touches[0].clientY;
     manual = (manual ?? shift) + (y - touchY);
     touchY = y;
+    hold();
+  }
+
+  // 指差せば　その一行へ　針が跳ぶ
+  function pick(line: LyricLine) {
+    if (!lyrics?.synced) return;
     clearTimeout(idle);
-    idle = window.setTimeout(() => (manual = null), 2600);
+    manual = null;
+    onseek(line.t);
   }
 </script>
 
@@ -54,13 +66,16 @@
   aria-label="Lyrics"
   class:plain={lyrics && !lyrics.synced}
   class:scroll={lyrics && !lyrics.synced}
+  class:hover
   bind:clientHeight={height}
   onwheel={wheel}
   ontouchstart={touchstart}
   ontouchmove={touchmove}
+  onpointerenter={(e) => e.pointerType === "mouse" && (hover = true)}
+  onpointerleave={() => (hover = false)}
 >
   {#if !lyrics || lines.length === 0}
-    <div class="none"><Icon name="hook" size={56} stroke={1.4} /></div>
+    <div class="none"><Mark size={72} /></div>
   {:else}
     <div class="sheet" class:free={manual !== null}>
       {#each lines as line, i (i)}
@@ -71,10 +86,11 @@
           class:on={i === active}
           class:past={lyrics.synced && i < active}
           class:gap={!line.text}
-          style:transform="translateY({lyrics.synced ? shift : 0}px) scale({i === active || !lyrics.synced ? 1 : 0.96})"
-          style:filter={lyrics.synced && manual === null && i !== active ? `blur(${Math.min(Math.abs(d), 6) * 0.55}px)` : "none"}
-          style:transition-delay="{manual === null && d > 0 ? Math.min(d, 8) * 42 : 0}ms"
-          onclick={() => lyrics.synced && onseek(line.t)}
+          style:--y="{lyrics.synced ? shift : 0}px"
+          style:--s={i === active || !lyrics.synced ? 1 : 0.965}
+          style:--blur="{lyrics.synced && i !== active ? Math.min(Math.abs(d), 6) * 0.55 : 0}px"
+          style:--d="{d > 0 ? Math.min(d, 8) * 40 : 0}ms"
+          onclick={() => pick(line)}
         >
           {#if line.text}
             <span class="main">{line.text}</span>
@@ -94,50 +110,61 @@
     position: relative;
     height: 100%;
     overflow: hidden;
+    padding: 0 6px;
     mask-image: linear-gradient(180deg, transparent 0, #000 12%, #000 78%, transparent 100%);
     -webkit-mask-image: linear-gradient(180deg, transparent 0, #000 12%, #000 78%, transparent 100%);
   }
   .lyrics.plain {
     overflow-y: auto;
-    padding: 18% 0 30%;
+    padding: 18% 6px 30%;
   }
   .sheet {
     display: flex;
     flex-direction: column;
     align-items: stretch;
   }
+
+  /* 鉤の行　動きは遅れ　触れは即 */
   .line {
     display: flex;
     flex-direction: column;
     gap: 4px;
     text-align: left;
-    padding: 12px 18px;
-    margin: 0 -18px;
+    padding: 12px 16px;
     border-radius: 16px;
     font-size: var(--lyric-size, clamp(24px, 2.5vw, 40px));
     font-weight: 700;
     line-height: 1.22;
     letter-spacing: -0.01em;
     color: rgba(255, 255, 255, 0.28);
+    transform: translateY(var(--y)) scale(var(--s));
     transform-origin: 0 50%;
+    filter: blur(var(--blur));
     transition:
-      transform 0.75s var(--ease),
-      color 0.45s var(--ease),
-      filter 0.45s var(--ease),
-      background 0.2s var(--ease);
+      transform 0.75s var(--ease) var(--d),
+      color 0.4s var(--ease),
+      filter 0.4s var(--ease),
+      background-color 0.08s linear;
     will-change: transform;
     text-wrap: pretty;
+    cursor: pointer;
+  }
+  .hover .line,
+  .free .line {
+    filter: none;
   }
   .free .line {
     transition:
-      transform 0.12s linear,
-      color 0.45s var(--ease),
-      filter 0.3s var(--ease),
-      background 0.2s var(--ease);
-    transition-delay: 0ms !important;
+      transform 0.1s ease-out,
+      color 0.4s var(--ease),
+      filter 0.2s,
+      background-color 0.08s linear;
   }
   .line:hover {
-    background: rgba(255, 255, 255, 0.06);
+    background-color: rgba(255, 255, 255, 0.09);
+  }
+  .line:active {
+    background-color: rgba(255, 255, 255, 0.14);
   }
   .line.on {
     color: rgba(255, 255, 255, 0.96);
@@ -146,9 +173,15 @@
   .line.past {
     color: rgba(255, 255, 255, 0.22);
   }
+  .hover .line:not(.on) {
+    color: rgba(255, 255, 255, 0.42);
+  }
   .plain .line {
     color: rgba(255, 255, 255, 0.82);
     cursor: default;
+  }
+  .plain .line:hover {
+    background-color: transparent;
   }
   .sub {
     font-size: 0.6em;
@@ -199,6 +232,6 @@
     display: grid;
     place-items: center;
     height: 100%;
-    color: var(--fg-4);
+    color: rgba(255, 255, 255, 0.12);
   }
 </style>
