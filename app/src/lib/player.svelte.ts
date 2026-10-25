@@ -1,4 +1,5 @@
 import type { Station } from "./api";
+import { local } from "./offline.svelte";
 import type { Room } from "./room.svelte";
 
 const HARD = 0.35;
@@ -22,6 +23,8 @@ export class Player {
   private latency = 0;
   private src = "";
   private relayed = new Set<string>();
+  private spoiled = new Set<string>();
+  private nearby = false;
   private timer = 0;
   private kick = 0;
   private ctx: AudioContext | null = null;
@@ -37,7 +40,10 @@ export class Player {
     // 近道の　塞がる時は　回り道
     a.addEventListener("error", () => {
       const id = this.room.current?.id;
-      if (id && !this.relayed.has(id)) {
+      if (id && this.nearby) {
+        this.spoiled.add(id);
+        this.align();
+      } else if (id && !this.relayed.has(id)) {
         this.relayed.add(id);
         this.align();
       }
@@ -100,9 +106,14 @@ export class Player {
       }
       return;
     }
-    const url = st.audio(item.id, this.relayed.has(item.id));
+    // 手元にも　あれば遠くへ　汲みに行かず
+    const near = this.spoiled.has(item.id) ? undefined : local(st.name, item.id);
+    const url = near ?? st.audio(item.id, this.relayed.has(item.id));
     if (url !== this.src) {
       this.src = url;
+      this.nearby = !!near;
+      if (near) a.removeAttribute("crossorigin");
+      else a.crossOrigin = "anonymous";
       a.src = url;
       a.playbackRate = 1;
       this.describe(st);
