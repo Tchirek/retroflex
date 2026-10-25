@@ -2,6 +2,9 @@
   import { fade, fly } from "svelte/transition";
   import { snap, type Snap, type Station, type Track } from "../lib/api";
   import { albums, search, type Album } from "../lib/library";
+  import { haptic } from "../lib/haptics";
+  import { openExternal } from "../lib/links";
+  import { dropPlaylist, playlists, type Playlist } from "../lib/playlists.svelte";
   import type { Mode } from "../lib/room.svelte";
   import AddToggle from "./AddToggle.svelte";
   import Art from "./Art.svelte";
@@ -37,11 +40,39 @@
     else take(list, "now");
   }
 
+  type Shelf = "albums" | "songs" | "lists";
+  const SHELVES: Shelf[] = ["albums", "songs", "lists"];
   let query = $state("");
   let open = $state<Album | null>(null);
-  let songs = $state(false);
+  let list = $state<Playlist | null>(null);
+  let mode = $state<Shelf>("albums");
   const shelf = $derived(albums(tracks));
   const found = $derived(search(tracks, query));
+  const byId = $derived(new Map(tracks.map((t) => [t.id, t])));
+  const mine = $derived(playlists.filter((p) => !station || p.station === station.name));
+
+  // 札だけの　歌も棚から　身を借りる
+  function full(s: Snap[]): Track[] {
+    return s.map((t) => byId.get(t.id) ?? { ...t, mime: "", size: 0, lyrics: false });
+  }
+
+  function shelve(m: Shelf) {
+    if (m !== mode) haptic();
+    mode = m;
+    open = null;
+    list = null;
+  }
+
+  function stamp(at: number): string {
+    const d = new Date(at);
+    return `${d.getMonth() + 1}-${String(d.getDate()).padStart(2, "0")}`;
+  }
+
+  // 外の札　この窓からは　開かずに
+  function out(e: MouseEvent) {
+    e.preventDefault();
+    openExternal((e.currentTarget as HTMLAnchorElement).href);
+  }
 
   // 盤ひとつ　まるごと今か　末尾にか
   function take(list: Track[], mode: Mode) {
@@ -51,21 +82,19 @@
 
 <div class="library">
   <div class="head">
-    {#if open && !query}
-      <button class="icon-btn" aria-label="Back" onclick={() => (open = null)}><Icon name="back" /></button>
+    {#if (open || list) && !query}
+      <button class="icon-btn" aria-label="Back" onclick={() => ((open = null), (list = null))}><Icon name="back" /></button>
     {/if}
     <label class="find">
       <Icon name="search" size={17} />
       <input bind:value={query} aria-label="Search" spellcheck="false" />
       {#if query}<button class="clear" aria-label="Clear" onclick={() => (query = "")}><Icon name="close" size={13} /></button>{/if}
     </label>
-    <div class="seg">
-      <button class="icon-btn" class:on={!songs} aria-label="Albums" onclick={() => ((songs = false), (open = null))}>
-        <Icon name="library" size={18} />
-      </button>
-      <button class="icon-btn" class:on={songs} aria-label="Songs" onclick={() => ((songs = true), (open = null))}>
-        <Icon name="songs" size={18} />
-      </button>
+    <div class="seg" style:--i={SHELVES.indexOf(mode)}>
+      <span class="knob"></span>
+      <button class:on={mode === "albums"} aria-label="Albums" onclick={() => shelve("albums")}><Icon name="library" size={18} /></button>
+      <button class:on={mode === "songs"} aria-label="Songs" onclick={() => shelve("songs")}><Icon name="songs" size={18} /></button>
+      <button class:on={mode === "lists"} aria-label="Saved lists" onclick={() => shelve("lists")}><Icon name="lists" size={18} /></button>
     </div>
   </div>
 
@@ -93,8 +122,53 @@
         </div>
         <Rows tracks={open.tracks} {station} art={false} numbered {onadd} {queued} {toggle} {nowId} {playing} {onplaypause} />
       </div>
-    {:else if songs}
+    {:else if list}
+      {@const lt = full(list.tracks)}
+      {@const busy = live(lt) && playing}
+      <!-- 手帳から　選びし束を　また鳴らす -->
+      <div class="album" in:fly={{ x: 24, duration: 260 }}>
+        <div class="hero">
+          <span class="cover big" class:mosaic={lt.length >= 4}>
+            {#each lt.slice(0, lt.length >= 4 ? 4 : 1) as t (t.id)}<span><Art {station} cover={t.cover} /></span>{/each}
+          </span>
+          <div class="info">
+            <div class="name">{lt[0]?.title ?? ""}</div>
+            <div class="by">{lt.length} · {stamp(list.at)}</div>
+            <div class="acts">
+              <button class="pill solid" aria-label={busy ? "Pause" : "Play list"} onclick={() => start(lt)}>
+                <Icon name={busy ? "pause" : "play"} size={18} />
+              </button>
+              <AddToggle variant="pill" on={queued(ids(lt))} onclick={() => toggle(lt.map(snap))} />
+              <button
+                class="pill"
+                aria-label="Delete list"
+                onclick={() => {
+                  dropPlaylist(list!.id);
+                  list = null;
+                }}><Icon name="trash" size={18} /></button
+              >
+            </div>
+          </div>
+        </div>
+        <Rows tracks={lt} {station} {onadd} {queued} {toggle} {nowId} {playing} {onplaypause} />
+      </div>
+    {:else if mode === "songs"}
       <div in:fade={{ duration: 120 }}><Rows {tracks} {station} {onadd} {queued} {toggle} {nowId} {playing} {onplaypause} /></div>
+    {:else if mode === "lists"}
+      <div class="grid" in:fade={{ duration: 120 }}>
+        {#each mine as p (p.id)}
+          {@const lt = full(p.tracks)}
+          <div class="card">
+            <button class="face" onclick={() => (list = p)} aria-label={lt[0]?.title}>
+              <span class="cover" class:mosaic={lt.length >= 4}>
+                {#each lt.slice(0, lt.length >= 4 ? 4 : 1) as t (t.id)}<span><Art {station} cover={t.cover} /></span>{/each}
+              </span>
+              <span class="title ellipsis">{lt[0]?.title ?? ""}</span>
+              <span class="sub ellipsis">{lt.length} · {stamp(p.at)}</span>
+            </button>
+          </div>
+        {/each}
+      </div>
     {:else}
       <!-- 背表紙に　触れれば今を　鳴らす釦 -->
       <div class="grid" in:fade={{ duration: 120 }}>
@@ -119,6 +193,13 @@
         {/each}
       </div>
     {/if}
+    <!-- 名を記し　権は手放す　と小さく -->
+    <footer class="legal">
+      Copyleft 🄯 2026
+      <a href="https://github.com/Tchirek" target="_blank" rel="noopener" onclick={out}>tchirek afra<Icon name="out" size={11} stroke={2} /></a>, under
+      <a href="https://www.gnu.org/licenses/agpl-3.0.html" target="_blank" rel="noopener" onclick={out}>AGPL-3.0<Icon name="out" size={11} stroke={2} /></a>
+      (Code). All rights reversed.
+    </footer>
   </div>
 </div>
 
@@ -167,7 +248,9 @@
     border-radius: 50%;
     background: var(--glass-2);
   }
+  /* 小さき珠　滑りて今の　棚を指す */
   .seg {
+    position: relative;
     flex: none;
     display: flex;
     gap: 2px;
@@ -175,9 +258,66 @@
     border-radius: 999px;
     background: rgba(255, 255, 255, 0.06);
   }
-  .seg .icon-btn {
+  .knob {
+    position: absolute;
+    top: 2px;
+    left: 2px;
     width: 34px;
     height: 34px;
+    border-radius: 50%;
+    background: var(--glass-2);
+    transform: translateX(calc(var(--i) * 36px));
+    transition: transform 0.32s var(--ease);
+  }
+  .seg button {
+    position: relative;
+    display: grid;
+    place-items: center;
+    width: 34px;
+    height: 34px;
+    border-radius: 50%;
+    color: var(--fg-3);
+    transition: color 0.2s;
+  }
+  .seg button.on {
+    color: var(--fg);
+  }
+  .mosaic {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    grid-template-rows: 1fr 1fr;
+  }
+  .mosaic span,
+  .cover > span {
+    display: block;
+    width: 100%;
+    height: 100%;
+    min-width: 0;
+    min-height: 0;
+    overflow: hidden;
+  }
+  .legal {
+    padding: 36px 4px 8px;
+    font-size: 10.5px;
+    line-height: 1.6;
+    color: var(--fg-3);
+    text-align: center;
+    letter-spacing: 0.01em;
+    user-select: text;
+    -webkit-user-select: text;
+  }
+  .legal a {
+    color: var(--fg-2);
+    text-decoration: none;
+    white-space: nowrap;
+  }
+  .legal a :global(svg) {
+    display: inline-block;
+    vertical-align: -1px;
+    margin-left: 1px;
+  }
+  .legal a:hover {
+    color: var(--fg);
   }
   .body {
     flex: 1;
