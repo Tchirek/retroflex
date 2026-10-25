@@ -1,7 +1,12 @@
 <script lang="ts">
   import { clock } from "../lib/library";
 
-  let { time, duration, onseek }: { time: number; duration: number; onseek: (t: number) => void } = $props();
+  let {
+    time,
+    duration,
+    onseek,
+    locked = false,
+  }: { time: number; duration: number; onseek: (t: number) => void; locked?: boolean } = $props();
 
   let bar: HTMLDivElement;
   let scrub = $state<number | null>(null);
@@ -14,7 +19,7 @@
     return Math.min(1, Math.max(0, (e.clientX - r.left) / r.width)) * duration;
   }
   function down(e: PointerEvent) {
-    if (!duration) return;
+    if (!duration || locked) return;
     bar.setPointerCapture(e.pointerId);
     scrub = at(e);
   }
