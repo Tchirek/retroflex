@@ -151,6 +151,9 @@ jobs:
       # 緑の地　骨組み生みて　身を宿す
       - run: |
           npx tauri android init --ci
+          manifest=src-tauri/gen/android/app/src/main/AndroidManifest.xml
+          sed -i 's/ android:windowSoftInputMode="[^"]*"//g' "$manifest"
+          sed -i 's/<activity /<activity android:windowSoftInputMode="adjustResize" /' "$manifest"
           npx tauri android build --apk --ci
         working-directory: app
         env:
