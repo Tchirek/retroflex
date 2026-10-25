@@ -4,14 +4,32 @@
   import type { Room } from "../lib/room.svelte";
   import Art from "./Art.svelte";
   import Icon from "./Icon.svelte";
+  import { haptic } from "../lib/haptics";
+  import { savePlaylist } from "../lib/playlists.svelte";
 
   let { room, station }: { room: Room; station: Station | null } = $props();
 
   const at = $derived(room.queue.findIndex((i) => i.qid === room.cur));
+  let saved = $state(false);
+
+  // 今の列　手帳にそっと　書き写す
+  function keep() {
+    if (!station || saved) return;
+    const tracks = room.queue.map(({ id, title, artist, album, duration, cover }) => ({ id, title, artist, album, duration, cover }));
+    if (!savePlaylist(station.name, tracks)) return;
+    haptic();
+    saved = true;
+    setTimeout(() => (saved = false), 1600);
+  }
 </script>
 
 <!-- 次々と　誰かの選びし　歌並ぶ -->
 <div class="queue scroll">
+  <div class="head">
+    <button class="icon-btn" class:on={saved} aria-label="Save list" disabled={!room.queue.length} onclick={keep}>
+      <Icon name={saved ? "check" : "save"} size={19} />
+    </button>
+  </div>
   {#each room.queue as item, i (item.qid)}
     {@const by = room.members[item.by]?.profile}
     <div class="row" class:now={item.qid === room.cur} class:past={at >= 0 && i < at}>
@@ -34,6 +52,14 @@
 </div>
 
 <style>
+  .head {
+    display: flex;
+    justify-content: flex-end;
+    padding: 0 2px 4px;
+  }
+  .head .icon-btn:disabled {
+    opacity: 0.3;
+  }
   .queue {
     height: 100%;
     display: flex;
