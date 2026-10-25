@@ -1,3 +1,5 @@
+use std::collections::BTreeMap;
+
 use serde::{Deserialize, Serialize};
 
 // 一曲の　名と声と長さ　札に書く
@@ -29,6 +31,8 @@ pub struct Track {
 pub struct Library {
     pub station: String,
     pub tracks: Vec<Track>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub blurs: BTreeMap<String, String>,
 }
 
 // 頼みごと　四つの型に　折りたたむ
@@ -45,7 +49,14 @@ pub enum Op {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "t", rename_all = "lowercase")]
 pub enum Up {
-    Hello { name: String, token: String, key: String, version: u32 },
+    Hello {
+        name: String,
+        token: String,
+        key: String,
+        version: u32,
+        #[serde(default)]
+        open: bool,
+    },
     Head { id: u32, status: u16, headers: Vec<(String, String)> },
     End { id: u32 },
     Changed,
