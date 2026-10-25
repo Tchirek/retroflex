@@ -1,3 +1,8 @@
+<script lang="ts" module>
+  // 一度見し　絵は二度目には　ただ其処に
+  const seen = new Set<string>();
+</script>
+
 <script lang="ts">
   import { blurs } from "../lib/art.svelte";
   import type { Station } from "../lib/api";
@@ -13,12 +18,21 @@
   const src = $derived(station?.cover(cover, !full));
   const blur = $derived(cover ? blurs[cover] : undefined);
   let shown = $state("");
+  let instant = $state(false);
+  $effect.pre(() => {
+    instant = !!src && seen.has(src);
+    if (instant && src) shown = src;
+  });
   let tries = 0;
 
   // 解けるまで　待ちて静かに　浮かび出る
   function reveal(e: Event) {
     const img = e.currentTarget as HTMLImageElement;
-    const done = () => img.isConnected && (shown = img.dataset.src ?? "");
+    const done = () => {
+      const s = img.dataset.src ?? "";
+      seen.add(s);
+      if (img.isConnected) shown = s;
+    };
     img.decode ? img.decode().then(done, done) : done();
   }
 
@@ -38,6 +52,7 @@
       <img
         class="img"
         class:on={shown === src}
+        class:still={instant}
         {src}
         data-src={src}
         alt=""
@@ -83,6 +98,9 @@
   }
   .img.on {
     opacity: 1;
+  }
+  .img.still {
+    transition: none;
   }
   .empty {
     position: absolute;
