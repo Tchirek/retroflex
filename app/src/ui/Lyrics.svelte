@@ -9,7 +9,33 @@
   let tops = $state<number[]>([]);
   let manual = $state<number | null>(null);
   let hover = $state(false);
+  let lit = $state(-1);
   let idle = 0;
+  let aim: { x: number; y: number } | null = null;
+  let seek = 0;
+
+  // 指の下　流れる行を　毎拍問う
+  function look() {
+    seek = 0;
+    if (!aim) return;
+    const el = document.elementFromPoint(aim.x, aim.y)?.closest<HTMLElement>(".line");
+    lit = el ? els.indexOf(el) : -1;
+    seek = requestAnimationFrame(look);
+  }
+  function point(e: PointerEvent) {
+    if (e.pointerType !== "mouse") return;
+    hover = true;
+    aim = { x: e.clientX, y: e.clientY };
+    if (!seek) seek = requestAnimationFrame(look);
+  }
+  function leave() {
+    hover = false;
+    aim = null;
+    lit = -1;
+    cancelAnimationFrame(seek);
+    seek = 0;
+  }
+  $effect(() => leave);
 
   // 前奏の　静けさにまた　点三つ
   const lines = $derived.by((): LyricLine[] => {
@@ -78,8 +104,8 @@
   onwheel={wheel}
   ontouchstart={touchstart}
   ontouchmove={touchmove}
-  onpointerenter={(e) => e.pointerType === "mouse" && (hover = true)}
-  onpointerleave={() => (hover = false)}
+  onpointermove={point}
+  onpointerleave={leave}
 >
   {#if !lyrics || lines.length === 0}
     <div class="none"><Mark size={72} /></div>
@@ -91,6 +117,7 @@
           bind:this={els[i]}
           class="line"
           class:on={i === active}
+          class:lit={i === lit && lyrics.synced}
           class:past={lyrics.synced && i < active}
           class:gap={!line.text}
           style:--y="{lyrics.synced ? shift : 0}px"
@@ -167,13 +194,8 @@
       filter 0.2s,
       background-color 0.08s linear;
   }
-  @media (hover: hover) {
-    .line:hover {
-      background-color: rgba(255, 255, 255, 0.09);
-    }
-    .plain .line:hover {
-      background-color: transparent;
-    }
+  .line.lit {
+    background-color: rgba(255, 255, 255, 0.09);
   }
   .line:active {
     background-color: rgba(255, 255, 255, 0.14);
