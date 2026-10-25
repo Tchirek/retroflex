@@ -106,6 +106,7 @@
   }
   .find {
     flex: 1;
+    min-width: 0;
     display: flex;
     align-items: center;
     gap: 8px;
@@ -136,6 +137,7 @@
     background: var(--glass-2);
   }
   .seg {
+    flex: none;
     display: flex;
     gap: 2px;
     padding: 2px;
@@ -155,8 +157,8 @@
   }
   .grid {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
-    gap: 22px 18px;
+    grid-template-columns: repeat(auto-fill, minmax(min(140px, calc(50% - 8px)), 1fr));
+    gap: 20px 16px;
   }
   .card {
     position: relative;
