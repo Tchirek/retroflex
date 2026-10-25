@@ -47,10 +47,12 @@ export class Player {
     });
     this.audio = a;
     this.timer = window.setInterval(() => this.align(), 200);
+    room.nudge = () => queueMicrotask(() => this.align());
     this.bindSession();
   }
 
   destroy(): void {
+    this.room.nudge = null;
     clearInterval(this.timer);
     clearTimeout(this.kick);
     this.audio.pause();
@@ -105,6 +107,7 @@ export class Player {
       a.playbackRate = 1;
       this.describe(st);
     }
+    if (!room.playing && !a.paused) a.pause();
     if (a.readyState < 1 || a.seeking) return;
 
     const now = room.clock.now();
