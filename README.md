@@ -84,7 +84,7 @@ the shared timeline.
 | --- | --- | --- |
 | audio | bytes it relays, track titles in the queue | |
 | people | how many connections a room has | names, colours |
-| words | ciphertext lengths | chat lines, live drafts |
+| words | ciphertext lengths, so how many characters someone typed | chat lines, live drafts |
 
 A room link looks like `https://hub/#/r/<room>/<secret>`. The part after `#` is
 never sent to any server. From the secret, each client derives two independent
@@ -95,6 +95,40 @@ from it.
 
 To open a room you need the **station key**, printed by `retroflex station` as a
 station link. Hand that only to people you would hand your record collection.
+
+Chat text is sealed as UTF-32, four bytes per character, so the hub can enforce
+a budget of 450 characters per person per minute from the ciphertext length
+alone. A client that skips the check in its own code still gets turned away.
+
+Two conveniences trade a little of this for ease, and say so:
+
+- **Invite codes.** A six-letter code (for example `K7Q M2P`) stands in for a
+  room link for ten minutes. To make that work the hub holds the room secret
+  for those ten minutes. The QR code and the plain link keep the secret off the
+  hub entirely.
+- **Lyric translation.** When a song's lyrics have no translation of their own,
+  the hub sends the sung lines to Google Translate in the listener's language
+  and caches the result for a week. Songs already in that language are skipped.
+
+## Public rooms
+
+A station started with `--open` can be browsed without a key, and its
+listeners can drop into a public room from the globe button in the library.
+The hub picks the open public room that fits best by size (rooms of about four
+feel liveliest), whether music is playing, and how many artists overlap with
+what you have been listening to. If none fits, a new public room opens.
+
+Public rooms keep the music going and keep it fair:
+
+| | rule |
+| --- | --- |
+| seats | 12 |
+| pause, seek, rewind, jump | not available; the centre button mutes your own device |
+| skip | when more than half of the room votes for it |
+| adding | to the end only, two songs per person waiting, ten waiting in total |
+| removing | your own songs and automatic picks, never the one playing |
+
+Private rooms work as before: anyone inside can do anything.
 
 ## Quick start
 
@@ -221,7 +255,13 @@ Releases are built by GitHub Actions when a `v*` tag is pushed:
 
 - `retroflex` binaries for Linux (x86_64, aarch64, static musl), macOS (Apple silicon) and Windows
 - desktop bundles: universal `.dmg` for macOS, `.msi` and `.exe` for Windows, `.AppImage` and `.deb` for Linux
-- an Android `.apk` (signed with `ANDROID_KEYSTORE` and `ANDROID_KEYSTORE_PASSWORD` secrets if present, otherwise with a throwaway key)
+- an Android `.apk` signed with the `ANDROID_KEYSTORE` and `ANDROID_KEYSTORE_PASSWORD` secrets, so each release installs over the last (without them CI falls back to a throwaway key, and Android will refuse to update)
+
+The apps can keep songs for offline listening: one tap on the download button
+saves a song, an album or a saved list into `Music/Retroflex` on desktops or the
+app's own storage on phones. A saved copy plays from disk but stays on the
+room's clock. Saved lists live only in the apps and can be shared as links that
+carry nothing but track ids.
 
 iOS needs your own Apple team: `cd app && npx tauri ios init && npx tauri ios
 build`. Until then, open any link in Safari and add it to the home screen; lock
