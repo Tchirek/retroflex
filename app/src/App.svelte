@@ -201,6 +201,36 @@
     } catch {}
   }
 
+  // 今鳴るも　次に控えも　列のうち
+  const lineup = $derived.by(() => {
+    if (!room) return new Set<string>();
+    const at = Math.max(0, room.queue.findIndex((q) => q.qid === room!.cur));
+    return new Set(room.queue.slice(room.cur == null ? room.queue.length : at).map((q) => q.id));
+  });
+  let guess = $state<{ key: string; on: boolean; at: number } | null>(null);
+
+  $effect(() => {
+    void room?.queue;
+    guess = null;
+  });
+
+  function queued(ids: string[]): boolean {
+    if (guess && guess.key === ids.join() && performance.now() - guess.at < 2000) return guess.on;
+    return ids.length > 0 && ids.every((id) => lineup.has(id));
+  }
+
+  // 積むも良し　気が変わらば　また降ろす
+  function toggle(list: Snap[]) {
+    const ids = list.map((t) => t.id);
+    const on = queued(ids);
+    guess = { key: ids.join(), on: !on, at: performance.now() };
+    if (!on) return void add(list, "end");
+    if (!room) return;
+    const drop = new Set(ids);
+    const at = Math.max(0, room.queue.findIndex((q) => q.qid === room!.cur));
+    for (const q of room.queue.slice(at)) if (drop.has(q.id)) room.remove(q.qid);
+  }
+
   // 合言葉　紙に写して　手渡しに
   async function share(): Promise<boolean> {
     if (!room || target.kind !== "room") return false;
@@ -293,7 +323,7 @@
       </div>
     {:else}
       <header class="mini">
-        <span class="thumb"><Art {station} cover={current?.cover} /></span>
+        <span class="thumb"><Art {station} cover={current?.cover} full eager /></span>
         <div class="meta">
           <div class="title ellipsis">{current?.title ?? ""}</div>
           <div class="artist ellipsis">{current?.artist ?? ""}</div>
@@ -313,7 +343,7 @@
 
 {#snippet pane(which: Panel | "now")}
   {#if which === "library"}
-    <div class="panel"><Library {tracks} {station} onadd={add} /></div>
+    <div class="panel"><Library {tracks} {station} onadd={add} {queued} {toggle} /></div>
   {:else if which === "chat" && room}
     <div class="panel"><Chat {room} /></div>
   {:else if which === "queue" && room}
