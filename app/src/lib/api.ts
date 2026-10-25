@@ -36,15 +36,26 @@ export class Station {
     return id ? this.url(`cover/${id}`, thumb ? "&thumb=1" : "") : undefined;
   }
 
-  async library(): Promise<Track[]> {
+  async library(): Promise<{ tracks: Track[]; blurs: Record<string, string> }> {
     const r = await fetch(this.url("library"));
     if (!r.ok) throw new Error(String(r.status));
-    return (await r.json()).tracks as Track[];
+    const body = await r.json();
+    return { tracks: body.tracks as Track[], blurs: (body.blurs ?? {}) as Record<string, string> };
   }
 
   async lyrics(id: string): Promise<string | null> {
     const r = await fetch(this.url(`lyrics/${id}`));
     return r.ok ? r.text() : null;
+  }
+}
+
+// 戸の開いた　駅の名前を　尋ねけり
+export async function openStations(hub: string): Promise<string[]> {
+  try {
+    const r = await fetch(`${hub}/api/stations`);
+    return r.ok ? ((await r.json()) as string[]) : [];
+  } catch {
+    return [];
   }
 }
 

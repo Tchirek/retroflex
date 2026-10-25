@@ -28,7 +28,7 @@ export function roomLink(hub: string, room: string, secret: string): string {
 }
 
 export function hash(target: Target): string {
-  if (target.kind === "station") return `#/s/${target.station}/${target.key}`;
+  if (target.kind === "station") return target.key ? `#/s/${target.station}/${target.key}` : "";
   if (target.kind === "room") return `#/r/${target.room}/${target.secret}`;
   return "";
 }
