@@ -5,6 +5,7 @@
   import AddToggle from "./AddToggle.svelte";
   import Art from "./Art.svelte";
   import Icon from "./Icon.svelte";
+  import { isApp, openExternal } from "../lib/links";
 
   let {
     tracks,
@@ -50,7 +51,12 @@
         <span class="dur">{clock(t.duration)}</span>
       </button>
       <span class="acts">
-        <button class="icon-btn" aria-label="Play next" onclick={() => onadd([snap(t)], "next")}>
+        {#if isApp && station}
+          <button class="icon-btn" aria-label="Download" onclick={() => openExternal(`${station!.audio(t.id, true)}&dl=1`)}>
+            <Icon name="download" size={18} />
+          </button>
+        {/if}
+        <button class="icon-btn nextup" aria-label="Play next" onclick={() => onadd([snap(t)], "next")}>
           <Icon name="playnext" size={18} />
         </button>
         <AddToggle {on} onclick={() => toggle([snap(t)])} />
@@ -163,7 +169,7 @@
     .acts {
       opacity: 1;
     }
-    .acts .icon-btn:first-child {
+    .acts .nextup {
       display: none;
     }
   }
