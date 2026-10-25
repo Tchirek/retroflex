@@ -19,6 +19,7 @@ function stored(key: string, fallback: number): number {
 export class Player {
   blocked = $state(false);
   volume = $state(stored("retroflex.volume", 1));
+  muted = $state(false);
   readonly audio: HTMLAudioElement;
   private latency = 0;
   private src = "";
@@ -96,6 +97,7 @@ export class Player {
     const { room, audio: a } = this;
     const st = this.station();
     a.volume = this.volume;
+    a.muted = this.muted;
     const item = room.current;
     if (!item || !st) {
       if (!a.paused) a.pause();

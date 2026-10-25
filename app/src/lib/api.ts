@@ -72,14 +72,46 @@ export async function openStations(hub: string): Promise<string[]> {
 }
 
 // 鍵ひとつ　見せて小部屋を　借り受ける
-export async function openRoom(hub: string, station: string, key: string, ticket: string): Promise<string> {
-  const r = await fetch(`${hub}/api/rooms`, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ station, key, ticket }),
-  });
+export async function openRoom(hub: string, station: string, key: string, ticket: string, open?: string): Promise<string> {
+  const body = open ? { station, key, ticket, public: true, secret: open } : { station, key, ticket };
+  const r = await post(`${hub}/api/rooms`, body);
   if (!r.ok) throw new Error(String(r.status));
   return (await r.json()).id as string;
+}
+
+function post(url: string, body: unknown): Promise<Response> {
+  return fetch(url, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+}
+
+export type Seat = { id: string; secret: string };
+
+// 広間へと　耳の合いそな　席を問う
+export async function matchRoom(hub: string, station: string, artists: string[]): Promise<Seat | null> {
+  try {
+    const r = await post(`${hub}/api/match`, { station, artists });
+    return r.ok ? ((await r.json()) as Seat) : null;
+  } catch {
+    return null;
+  }
+}
+
+// 六つ字の　合言葉をば　借りてくる
+export async function makeInvite(hub: string, room: string, ticket: string, secret: string): Promise<string | null> {
+  try {
+    const r = await post(`${hub}/api/invites`, { room, ticket, secret });
+    return r.ok ? ((await r.json()).code as string) : null;
+  } catch {
+    return null;
+  }
+}
+
+export async function redeemInvite(hub: string, code: string): Promise<Seat | null> {
+  try {
+    const r = await fetch(`${hub}/api/invites/${encodeURIComponent(code)}`);
+    return r.ok ? ((await r.json()) as Seat) : null;
+  } catch {
+    return null;
+  }
 }
 
 export function snap(t: Track): Snap {

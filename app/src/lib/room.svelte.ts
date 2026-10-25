@@ -9,7 +9,9 @@ export type Line = { key: string; from: number; text: string; at: number; nick: 
 export type Mode = "end" | "next" | "now";
 const LEAD = 450;
 const HOLD = 1500;
-type Status = "connecting" | "open" | "closed" | "gone";
+const AHEAD = 10;
+const EACH = 2;
+type Status = "connecting" | "open" | "closed" | "gone" | "full";
 
 // 小部屋への　糸一本を　手繰り寄す
 export class Room {
@@ -22,6 +24,7 @@ export class Room {
   playing = $state(false);
   public = $state(false);
   skips = $state(0);
+  voted = $state<number | null>(null);
   pos = $state(0);
   at = $state(0);
   lines = $state<Line[]>([]);
@@ -178,6 +181,11 @@ export class Room {
       case "pong":
         this.clock.sample(m.c, m.s);
         break;
+      // 満席の　戸は叩けども　開かれず
+      case "full":
+        this.status = "full";
+        this.stopped = true;
+        break;
     }
   }
 
@@ -262,8 +270,19 @@ export class Room {
     this.raw({ t: "profile", ct: seal(this.keys.seal, profile) });
   }
 
+  // 広間では　積める数にも　限りあり
+  allowance(): number {
+    const ahead = this.queue.slice(this.index(this.cur) + 1);
+    const mine = ahead.filter((q) => q.by === this.me).length;
+    return Math.max(0, Math.min(AHEAD - ahead.length, EACH - mine));
+  }
+
   // 積む歌は　届く前から　列にあり
   enqueue(tracks: Snap[], mode: Mode = "end"): void {
+    if (this.public) {
+      mode = "end";
+      tracks = tracks.slice(0, this.allowance());
+    }
     if (!tracks.length) return;
     this.raw({ t: "enqueue", tracks, mode });
     const ids = tracks.map((t) => t.id);
@@ -280,6 +299,7 @@ export class Room {
   }
 
   play(qid?: number, pos?: number): void {
+    if (this.public && this.cur != null) return;
     this.raw({ t: "play", qid, pos });
     this.guess(
       () => {
@@ -292,6 +312,7 @@ export class Room {
   }
 
   pause(): void {
+    if (this.public) return;
     this.raw({ t: "pause" });
     this.guess(
       () => {
@@ -305,6 +326,7 @@ export class Room {
 
   // 応え待たず　針を先にと　動かしぬ
   seek(pos: number): void {
+    if (this.public) return;
     this.raw({ t: "seek", pos });
     const dur = this.current?.duration ?? 0;
     const p = Math.max(0, dur > 0 ? Math.min(pos, dur) : pos);
@@ -319,6 +341,11 @@ export class Room {
 
   next(): void {
     this.raw({ t: "next" });
+    // 一票を　投じて皆の　意を待てり
+    if (this.public) {
+      this.voted = this.cur;
+      return;
+    }
     const from = this.cur;
     const nxt = this.queue[this.index(from) + 1];
     if (!nxt) return;
@@ -326,6 +353,7 @@ export class Room {
   }
 
   prev(): void {
+    if (this.public) return;
     this.raw({ t: "prev" });
     const i = this.index(this.cur);
     const back = this.position() > 3 || i <= 0 ? this.cur : this.queue[i - 1].qid;
