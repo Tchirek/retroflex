@@ -57,8 +57,9 @@ export default {
     let length = obj.size;
     const r = obj.range;
     if (request.headers.has("range") && r) {
-      const start = "suffix" in r ? obj.size - r.suffix : (r.offset ?? 0);
-      const end = "suffix" in r ? obj.size - 1 : r.length !== undefined ? start + r.length - 1 : obj.size - 1;
+      const suffix = typeof r.suffix === "number";
+      const start = suffix ? obj.size - r.suffix : (r.offset ?? 0);
+      const end = suffix ? obj.size - 1 : typeof r.length === "number" ? start + r.length - 1 : obj.size - 1;
       length = end - start + 1;
       status = 206;
       headers.set("content-range", `bytes ${start}-${end}/${obj.size}`);
