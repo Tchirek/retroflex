@@ -1,5 +1,6 @@
 <script lang="ts">
   import { fade } from "svelte/transition";
+  import { backable } from "../lib/back.svelte";
   import { haptic } from "../lib/haptics";
   import { saveProfile } from "../lib/names";
   import type { Room } from "../lib/room.svelte";
@@ -14,6 +15,11 @@
   let draft = $state("");
   let copied = $state(false);
   let box: HTMLDivElement;
+
+  backable(
+    () => open !== null,
+    () => (commit(), (open = null)),
+  );
 
   const people = $derived(Object.values(room.members).sort((a, b) => (a.id === room.me ? 1 : b.id === room.me ? -1 : a.id - b.id)));
   const shown = $derived(open === null ? null : room.members[open]);
