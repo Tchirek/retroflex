@@ -1,7 +1,7 @@
 <script lang="ts">
   import { flushSync, onMount } from "svelte";
   import { fade, fly } from "svelte/transition";
-  import { backable } from "./lib/back.svelte";
+  import { anchor, backable } from "./lib/back.svelte";
   import { haptic } from "./lib/haptics";
   import { listenDeepLinks, offerApp } from "./lib/deeplink";
   import { isApp, openExternal } from "./lib/links";
@@ -109,7 +109,8 @@
     wide = mq.matches;
     mq.onchange = () => (wide = mq.matches);
     const onhash = () => {
-      land(parseTarget(location.hash, homeHub()));
+      const t = parseTarget(location.hash, homeHub());
+      if (hash(t) !== hash(target)) land(t);
     };
     if (initial.kind === "none") probe();
     if (isApp) {
@@ -338,6 +339,8 @@
   }
 
   // 戻る手は　まず大きなる　盤の前へ
+  anchor(() => hash(target) || location.pathname);
+
   backable(
     () => !wide && !!room && view !== "now",
     () => turn("now"),

@@ -3,16 +3,30 @@ type Layer = { id: number; close: () => void };
 const stack: Layer[] = [];
 let next = 0;
 let skip = 0;
+let home = () => location.href;
+
+// 層を剥ぎ　道標だけは　今のまま
+function restore() {
+  const url = new URL(home(), location.href).href;
+  if (url !== location.href) history.replaceState(history.state, "", url);
+}
 
 // 戻る手に　重ねし層を　一枚ずつ
 if (typeof window !== "undefined") {
   addEventListener("popstate", () => {
     if (skip > 0) {
       skip--;
-      return;
+      return restore();
     }
-    stack.pop()?.close();
+    const top = stack.pop();
+    if (!top) return;
+    restore();
+    top.close();
   });
+}
+
+export function anchor(url: () => string): void {
+  home = url;
 }
 
 function push(close: () => void): () => void {
