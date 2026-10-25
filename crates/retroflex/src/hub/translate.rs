@@ -96,6 +96,18 @@ fn primary(lang: &str) -> &str {
     lang.split('-').next().unwrap_or(lang)
 }
 
+// 母の字で　既に書かれし　行は措く
+fn native(line: &str, to: &str) -> bool {
+    let has = |lo: char, hi: char| line.chars().any(|c| (lo..=hi).contains(&c));
+    let (han, kana, hangul) = (has('\u{4e00}', '\u{9fff}'), has('\u{3040}', '\u{30ff}'), has('\u{ac00}', '\u{d7af}'));
+    match primary(to) {
+        "zh" => han && !kana && !hangul,
+        "ja" => kana,
+        "ko" => hangul,
+        _ => false,
+    }
+}
+
 impl Translator {
     fn cached(&self, key: &str) -> Option<Arc<Value>> {
         self.0.lock().unwrap().done.get(key).filter(|(_, at)| at.elapsed() < FRESH).map(|(v, _)| v.clone())
@@ -111,10 +123,11 @@ impl Translator {
 
     // 行を束ね　改行のまま　訳を請う
     fn render(&self, lines: &[String], to: &str) -> Result<Value> {
+        let lines: Vec<String> = lines.iter().filter(|l| !native(l, to)).cloned().collect();
         let url = format!("{API}&tl={to}");
         let mut weight: HashMap<String, usize> = HashMap::new();
         let mut map = serde_json::Map::new();
-        for chunk in batches(lines) {
+        for chunk in batches(&lines) {
             let q = chunk.join("\n");
             let out: Value = self.1.post(&url).send_form([("q", q.as_str())])?.body_mut().read_json()?;
             let said = out["sentences"].as_array().ok_or_else(|| anyhow!("unexpected reply"))?;
@@ -197,6 +210,9 @@ mod tests {
         let lrc = "[ti:Plastic Love]\n[00:01.00]<00:01.00>Hello <00:01.50>world\n[00:02.00][00:09.00]Again\n[00:03.00]\n[00:04.00]Again\nplain";
         assert_eq!(verses(lrc), ["Hello world", "Again", "plain"]);
         assert_eq!(primary("zh-CN"), "zh");
+        assert!(native("但已是 能接受你所有改變", "zh-CN"));
+        assert!(!native("君の名は", "zh-CN"));
+        assert!(native("君の名は", "ja"));
         let many: Vec<String> = (0..10).map(|_| "x".repeat(1000)).collect();
         assert_eq!(batches(&many).iter().map(|b| b.len()).collect::<Vec<_>>(), [2, 2, 2, 2, 2]);
     }
