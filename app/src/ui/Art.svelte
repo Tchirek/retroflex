@@ -1,12 +1,7 @@
-<script lang="ts" module>
-  // 一度見し　絵は二度目には　ただ其処に
-  const seen = new Set<string>();
-</script>
-
 <script lang="ts">
   import { blurs } from "../lib/art.svelte";
   import type { Station } from "../lib/api";
-  import Icon from "./Icon.svelte";
+  import Mark from "./Mark.svelte";
 
   let {
     station,
@@ -19,19 +14,19 @@
   const blur = $derived(cover ? blurs[cover] : undefined);
   let shown = $state("");
   let instant = $state(false);
-  $effect.pre(() => {
-    instant = !!src && seen.has(src);
-    if (instant && src) shown = src;
-  });
   let tries = 0;
+
+  // 既に手に　あれば間を置かず　其処に置く
+  function ready(node: HTMLImageElement) {
+    instant = node.complete && node.naturalWidth > 0;
+    if (instant) shown = node.dataset.src ?? "";
+  }
 
   // 解けるまで　待ちて静かに　浮かび出る
   function reveal(e: Event) {
     const img = e.currentTarget as HTMLImageElement;
     const done = () => {
-      const s = img.dataset.src ?? "";
-      seen.add(s);
-      if (img.isConnected) shown = s;
+      if (img.isConnected) shown = img.dataset.src ?? "";
     };
     img.decode ? img.decode().then(done, done) : done();
   }
@@ -58,12 +53,13 @@
         alt=""
         decoding="async"
         loading={eager ? "eager" : "lazy"}
+        use:ready
         onload={reveal}
         onerror={retry}
       />
     {/key}
   {:else}
-    <span class="empty"><Icon name="disc" size={40} stroke={1.1} /></span>
+    <span class="empty"><Mark size={40} /></span>
   {/if}
 </span>
 
