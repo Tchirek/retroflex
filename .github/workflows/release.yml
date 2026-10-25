@@ -154,11 +154,12 @@ jobs:
           manifest=src-tauri/gen/android/app/src/main/AndroidManifest.xml
           sed -i 's/ android:windowSoftInputMode="[^"]*"//g' "$manifest"
           sed -i 's/<activity /<activity android:windowSoftInputMode="adjustResize" /' "$manifest"
+          cp -r src-tauri/icons/android/. src-tauri/gen/android/app/src/main/res/
           npx tauri android build --apk --ci
         working-directory: app
         env:
           NDK_HOME: ${{ env.ANDROID_HOME }}/ndk/27.2.12479018
-      # 印なき　荷には仮にも　判を押す
+      # 同じ判　押し続けてこそ　継ぎ足せる
       - env:
           KEYSTORE: ${{ secrets.ANDROID_KEYSTORE }}
           KEYPASS: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
