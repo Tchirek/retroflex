@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { Clock } from "./clock";
-import { derive, newSecret, seal, unseal } from "./crypto";
+import { derive, newSecret, seal, sealText, unb64u, unseal, unsealText } from "./crypto";
 import { parseTarget, roomLink } from "./link";
 import { activeLine, parseLrc } from "./lrc";
 
@@ -56,6 +56,14 @@ describe("crypto", () => {
     expect(unseal(b.seal, ct)).toEqual({ text: "晚风" });
     expect(unseal(derive(newSecret()).seal, ct)).toBeNull();
     expect(seal(a.seal, 1)).not.toBe(seal(a.seal, 1));
+  });
+
+  it("seals chat as four bytes a character", () => {
+    const a = derive(newSecret());
+    const ct = sealText(a.seal, "晚风🎐 ok");
+    expect(unb64u(ct).length - 40).toBe(6 * 4);
+    expect(unsealText(a.seal, ct)).toBe("晚风🎐 ok");
+    expect(unsealText(a.seal, seal(a.seal, { text: "old" }))).toBe("old");
   });
 });
 

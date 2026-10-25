@@ -1,6 +1,6 @@
 import type { Snap } from "./api";
 import { Clock } from "./clock";
-import { derive, seal, unseal, type Keys } from "./crypto";
+import { derive, seal, sealText, unseal, unsealText, type Keys } from "./crypto";
 import type { Profile } from "./names";
 
 export type QItem = Snap & { qid: number; by: number; auto?: boolean };
@@ -25,6 +25,8 @@ export class Room {
   pos = $state(0);
   at = $state(0);
   lines = $state<Line[]>([]);
+  hush = $state(0);
+  bounced = $state("");
   current = $derived(this.queue.find((i) => i.qid === this.cur));
 
   readonly clock = new Clock();
@@ -39,6 +41,7 @@ export class Room {
   private expectUntil = 0;
   private held: any = null;
   private temp = 0;
+  private said: string[] = [];
   nudge: (() => void) | null = null;
 
   constructor(
@@ -160,9 +163,16 @@ export class Room {
         this.hear(m);
         break;
       case "draft": {
-        const d = unseal<{ text: string }>(this.keys.seal, m.ct);
         const member = this.members[m.from];
-        if (member && d) member.draft = String(d.text).slice(0, 2000);
+        const text = m.ct ? unsealText(this.keys.seal, m.ct) : "";
+        if (member && text !== null) member.draft = text.slice(0, 450);
+        break;
+      }
+      // 言い過ぎを　諫められては　口つぐむ
+      case "limit": {
+        this.hush = performance.timeOrigin + performance.now() + (Number(m.wait) || 1) * 1000;
+        const back = this.said.shift();
+        if (back) this.bounced = back;
         break;
       }
       case "pong":
@@ -213,15 +223,16 @@ export class Room {
   private hear(m: { from: number; ct: string; at: number }): void {
     if (this.seen.has(m.ct)) return;
     this.seen.add(m.ct);
-    const body = unseal<{ text: string }>(this.keys.seal, m.ct);
-    if (!body) return;
+    const body = unsealText(this.keys.seal, m.ct);
+    if (body === null) return;
     const who = this.members[m.from];
+    if (m.from === this.me) this.said.shift();
     if (who) who.draft = "";
     const p = who?.profile ?? (m.from === this.me ? this.profile : null);
     this.lines.push({
       key: m.ct.slice(0, 16),
       from: m.from,
-      text: String(body.text).slice(0, 4000),
+      text: body.slice(0, 4000),
       at: m.at,
       nick: p?.nick ?? "·",
       hue: p?.hue ?? 0,
@@ -236,11 +247,12 @@ export class Room {
   }
 
   say(text: string): void {
-    this.raw({ t: "chat", ct: seal(this.keys.seal, { text }) });
+    this.said.push(text);
+    this.raw({ t: "chat", ct: sealText(this.keys.seal, text) });
   }
 
   draft(text: string): void {
-    this.raw({ t: "draft", ct: seal(this.keys.seal, { text }) });
+    this.raw({ t: "draft", ct: text ? sealText(this.keys.seal, text) : "" });
   }
 
   rename(profile: Profile): void {
