@@ -20,6 +20,8 @@ export class Room {
   queue = $state<QItem[]>([]);
   cur = $state<number | null>(null);
   playing = $state(false);
+  public = $state(false);
+  skips = $state(0);
   pos = $state(0);
   at = $state(0);
   lines = $state<Line[]>([]);
@@ -170,6 +172,8 @@ export class Room {
   }
 
   private apply(m: any): void {
+    this.public = !!m.public;
+    this.skips = m.skip ?? 0;
     this.queue = m.queue;
     this.cur = m.cur;
     this.playing = m.playing;
