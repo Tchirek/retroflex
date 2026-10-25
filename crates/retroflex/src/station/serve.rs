@@ -123,14 +123,7 @@ fn answer(st: &Station, op: &Op, range: Option<&str>) -> Result<Reply> {
         }
         Op::Cover { cover, thumb } => {
             let Some(asset) = index.covers.get(cover) else { return Ok(Reply::empty(404)) };
-            if let (false, Asset::File { src, rel }) = (*thumb, asset) {
-                let source = &st.sources[*src];
-                let url = worker_url(st, source, rel).or_else(|| st.direct.then(|| source.direct_url(rel)).flatten());
-                if let Some(url) = url {
-                    return Ok(Reply::redirect(url));
-                }
-            }
-            let data = if *thumb { thumbnail(st, cover, asset)? } else { load(st, asset)? };
+            let data = if *thumb { thumbnail(st, cover, asset)? } else { original(st, cover, asset)? };
             let ctype = if data.starts_with(b"\x89PNG") { "image/png" } else { "image/jpeg" };
             Ok(Reply::bytes(ctype, data))
         }
@@ -189,6 +182,21 @@ fn thumbnail(st: &Station, cover: &str, asset: &Asset) -> Result<Vec<u8>> {
     image::codecs::jpeg::JpegEncoder::new_with_quality(&mut out, 84).encode_image(&img)?;
     write_atomic(&path, &out)?;
     Ok(out)
+}
+
+// 遠き絵は　一度借りれば　棚に置く
+fn original(st: &Station, cover: &str, asset: &Asset) -> Result<Vec<u8>> {
+    let remote = matches!(asset, Asset::File { src, .. } if !matches!(*st.sources[*src], crate::station::source::Source::Local { .. }));
+    if !remote {
+        return load(st, asset);
+    }
+    let path = st.cache.join("originals").join(cover);
+    if let Ok(data) = std::fs::read(&path) {
+        return Ok(data);
+    }
+    let data = load(st, asset)?;
+    write_atomic(&path, &data)?;
+    Ok(data)
 }
 
 fn write_atomic(path: &Path, data: &[u8]) -> Result<()> {
