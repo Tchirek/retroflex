@@ -38,6 +38,7 @@
 
   const tauri = "__TAURI_INTERNALS__" in window;
   const mac = tauri && /Mac OS X/.test(navigator.userAgent) && navigator.maxTouchPoints === 0;
+  const ios = /iPhone|iPad|iPod/.test(navigator.userAgent) || (/Mac OS X/.test(navigator.userAgent) && navigator.maxTouchPoints > 1);
   const profile = loadProfile();
 
   // 中枢は　この頁の主か　覚えし名か
@@ -100,7 +101,7 @@
     const fit = () => {
       if (!vv) return;
       document.documentElement.style.setProperty("--vvh", `${Math.round(vv.height)}px`);
-      if (vv.offsetTop > 0 || window.scrollY > 0) window.scrollTo(0, 0);
+      if (ios && (vv.offsetTop > 0 || window.scrollY > 0)) window.scrollTo(0, 0);
     };
     vv?.addEventListener("resize", fit);
     vv?.addEventListener("scroll", fit);
