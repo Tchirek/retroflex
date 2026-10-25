@@ -55,9 +55,26 @@
   let pending: { tracks: Snap[]; mode: Mode } | null = null;
   const lyricCache = new Map<string, LyricData | null>();
 
+  // 一度得し　棚の鍵こそ　使い続けん
+  let browsing = $state<{ hub: string; station: string; key: string } | null>(null);
+  const made = new Map<string, Station>();
+  function stationFor(hub: string, name: string, pass: string): Station {
+    const id = `${hub}|${name}|${pass}`;
+    let st = made.get(id);
+    if (!st) made.set(id, (st = new Station(hub, name, pass)));
+    return st;
+  }
+  $effect(() => {
+    if (target.kind === "station") browsing = { hub: target.hub, station: target.station, key: target.key };
+  });
   const station = $derived.by(() => {
-    if (target.kind === "station") return new Station(target.hub, target.station, target.key);
-    if (target.kind === "room" && room?.station) return new Station(target.hub, room.station, room.pass);
+    if (target.kind === "station") return stationFor(target.hub, target.station, target.key);
+    if (target.kind === "room") {
+      const b = browsing;
+      const name = room?.station;
+      if (b && b.hub === target.hub && (!name || b.station === name)) return stationFor(b.hub, b.station, b.key);
+      if (name && room) return stationFor(target.hub, name, room.pass);
+    }
     return null;
   });
   const current = $derived(room?.current);
@@ -190,7 +207,6 @@
 
   // 初めの歌　選べば部屋が　生まれけり
   async function add(list: Snap[], mode: Mode) {
-    if (mode === "now" && !wide) view = "now";
     if (room) return room.enqueue(list, mode);
     if (target.kind !== "station") return;
     const secret = newSecret();
@@ -321,7 +337,7 @@
         </div>
         {#if room}<Members {room} onshare={share} />{/if}
       </div>
-    {:else}
+    {:else if view === "lyrics"}
       <header class="mini">
         <span class="thumb"><Art {station} cover={current?.cover} full eager /></span>
         <div class="meta">
@@ -333,17 +349,61 @@
       <section class="pane" in:fade={{ duration: 160 }}>
         {@render pane(view)}
       </section>
+    {:else}
+      <section class="pane tall" in:fade={{ duration: 160 }}>
+        {@render pane(view)}
+      </section>
     {/if}
-    {#if room && view !== "chat"}<div class="whispers"><Whisper {room} max={2} /></div>{/if}
-    <Progress time={pos} duration={current?.duration ?? 0} onseek={(t) => room?.seek(t)} />
-    <Transport {...transport} small={view !== "now"} />
+    {#if view === "now" || view === "lyrics"}
+      {#if room}<div class="whispers"><Whisper {room} max={2} /></div>{/if}
+      <Progress time={pos} duration={current?.duration ?? 0} onseek={(t) => room?.seek(t)} />
+      <Transport {...transport} small={view !== "now"} />
+    {:else}
+      {@render dock()}
+    {/if}
     {@render tabs()}
   </main>
 {/if}
 
+{#snippet dock()}
+  <!-- 小さき帯　今鳴る歌を　手のひらに -->
+  <div class="dock">
+    <button class="who" aria-label="Now playing" onclick={() => (view = "now")}>
+      <span class="thumb small"><Art {station} cover={current?.cover} full eager /></span>
+      <span class="meta">
+        <span class="title ellipsis">{current?.title ?? ""}</span>
+        <span class="artist ellipsis">{current?.artist ?? ""}</span>
+      </span>
+    </button>
+    <button
+      class="icon-btn"
+      aria-label={transport.playing ? "Pause" : "Play"}
+      disabled={transport.disabled}
+      onclick={transport.playing ? transport.onpause : transport.onplay}
+    >
+      <Icon name={transport.playing ? "pause" : "play"} size={24} />
+    </button>
+    <button class="icon-btn" aria-label="Next" disabled={transport.disabled} onclick={transport.onnext}>
+      <Icon name="next" size={22} />
+    </button>
+    <span class="line" style:transform="scaleX({current?.duration ? Math.min(1, pos / current.duration) : 0})"></span>
+  </div>
+{/snippet}
+
 {#snippet pane(which: Panel | "now")}
   {#if which === "library"}
-    <div class="panel"><Library {tracks} {station} onadd={add} {queued} {toggle} /></div>
+    <div class="panel">
+      <Library
+        {tracks}
+        {station}
+        onadd={add}
+        {queued}
+        {toggle}
+        nowId={current?.id}
+        playing={room?.playing ?? false}
+        onplaypause={() => (room?.playing ? room.pause() : transport.onplay())}
+      />
+    </div>
   {:else if which === "chat" && room}
     <div class="panel"><Chat {room} /></div>
   {:else if which === "queue" && room}
@@ -525,6 +585,61 @@
   }
   .phone .panel {
     max-width: none;
+  }
+  .dock {
+    position: relative;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 7px 6px 7px 7px;
+    border-radius: 14px;
+    overflow: hidden;
+    background: rgba(255, 255, 255, 0.09);
+    flex: none;
+  }
+  .who {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    gap: 11px;
+    text-align: left;
+  }
+  .thumb.small {
+    width: 44px;
+    height: 44px;
+    border-radius: 7px;
+    box-shadow: none;
+  }
+  .who .meta {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+  }
+  .who .title {
+    font-size: 14.5px;
+    font-weight: 600;
+  }
+  .who .artist {
+    font-size: 12.5px;
+    margin-top: 0;
+  }
+  .dock .icon-btn {
+    width: 42px;
+    height: 42px;
+    color: var(--fg);
+  }
+  .dock .icon-btn:disabled {
+    opacity: 0.35;
+  }
+  .line {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    height: 2px;
+    background: rgba(255, 255, 255, 0.7);
+    transform-origin: 0 50%;
   }
   .phone .tabs {
     position: static;
