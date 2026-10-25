@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { haptic } from "../lib/haptics";
+
   let {
     on,
     size = 18,
@@ -12,6 +14,7 @@
   function press() {
     pop = false;
     requestAnimationFrame(() => (pop = true));
+    haptic();
     onclick();
   }
 </script>
