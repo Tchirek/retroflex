@@ -52,20 +52,6 @@ body {
   height: var(--vvh, 100%);
 }
 
-/* 移ろいの　間合いは短く　しなやかに */
-::view-transition-old(root),
-::view-transition-new(root) {
-  animation-duration: 0.28s;
-}
-::view-transition-group(cover) {
-  animation-duration: 0.46s;
-  animation-timing-function: cubic-bezier(0.2, 0.8, 0.2, 1);
-}
-::view-transition-old(cover),
-::view-transition-new(cover) {
-  animation-duration: 0.46s;
-}
-
 button {
   font: inherit;
   color: inherit;

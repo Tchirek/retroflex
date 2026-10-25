@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { flushSync, onMount } from "svelte";
+  import { onMount } from "svelte";
   import { fade, fly } from "svelte/transition";
   import { anchor, backable } from "./lib/back.svelte";
   import { haptic } from "./lib/haptics";
@@ -18,10 +18,10 @@
   import { sendLink } from "./lib/share";
   import { Player } from "./lib/player.svelte";
   import { Room, type Mode } from "./lib/room.svelte";
-  import Art from "./ui/Art.svelte";
   import Backdrop from "./ui/Backdrop.svelte";
   import Chat from "./ui/Chat.svelte";
   import Cover from "./ui/Cover.svelte";
+  import Float from "./ui/Float.svelte";
   import Gate from "./ui/Gate.svelte";
   import Icon from "./ui/Icon.svelte";
   import Library from "./ui/Library.svelte";
@@ -198,7 +198,7 @@
     }
     lyrics = null;
     let alive = true;
-    st.lyrics(id).then((text) => {
+    st.lyrics(id).then(async (text) => {
       const parsed = text ? parseLrc(text) : null;
       lyricCache.set(id, parsed);
       if (alive) lyrics = parsed;
@@ -336,19 +336,12 @@
     if (next === view || !usable(next)) return;
     slide = Math.sign(ORDER.indexOf(next) - ORDER.indexOf(view));
     haptic();
-    const morph = next === "now" || view === "now";
-    const vt = (document as Document & { startViewTransition?: (cb: () => void) => unknown }).startViewTransition;
-    if (morph && vt) {
-      vt.call(document, () => {
-        view = next;
-        flushSync();
-      });
-    } else view = next;
+    view = next;
   }
 
-  // 戻る手は　まず大きなる　盤の前へ
   anchor(() => hash(target) || location.pathname);
 
+  // 戻る手は　まず大きなる　盤の前へ
   backable(
     () => !wide && !!room && view !== "now",
     () => turn("now"),
@@ -419,7 +412,7 @@
 {:else}
   <main class="phone" class:full={view === "now"} ontouchstart={swipeStart} ontouchend={swipeEnd}>
     {#if view === "now"}
-      <div class="art"><Cover {station} cover={current?.cover} playing={room?.playing ?? false} /></div>
+      <div class="art"><div class="slot" data-slot="big"></div></div>
       <div class="row">
         <div class="meta">
           <div class="title ellipsis">{current?.title ?? ""}</div>
@@ -429,7 +422,7 @@
       </div>
     {:else if view === "lyrics"}
       <header class="mini">
-        <button class="thumb" aria-label="Now playing" onclick={() => turn("now")}><Art {station} cover={current?.cover} full eager /></button>
+        <button class="thumb" data-slot="thumb" aria-label="Now playing" onclick={() => turn("now")}></button>
         <div class="meta">
           <div class="title ellipsis">{current?.title ?? ""}</div>
           <div class="artist ellipsis">{current?.artist ?? ""}</div>
@@ -453,6 +446,7 @@
       {@render dock()}
     {/if}
     {@render tabs()}
+    <Float {station} cover={current?.cover} at={view} rest={!(room?.playing ?? false)} />
   </main>
 {/if}
 
@@ -460,7 +454,7 @@
   <!-- 小さき帯　今鳴る歌を　手のひらに -->
   <div class="dock">
     <button class="who" aria-label="Now playing" onclick={() => turn("now")}>
-      <span class="thumb small"><Art {station} cover={current?.cover} full eager /></span>
+      <span class="thumb small" data-slot="dock"></span>
       <span class="meta">
         <span class="title ellipsis">{current?.title ?? ""}</span>
         <span class="artist ellipsis">{current?.artist ?? ""}</span>
@@ -652,8 +646,11 @@
     justify-content: center;
     max-width: none;
   }
-  .phone .art :global(.cover) {
+  .slot {
+    display: block;
     width: min(100%, 52vh);
+    aspect-ratio: 1;
+    border-radius: clamp(10px, 1.2vw, 16px);
   }
   .row {
     display: flex;
@@ -674,9 +671,6 @@
     height: 54px;
     flex: none;
     border-radius: 8px;
-    overflow: hidden;
-    background: var(--glass);
-    box-shadow: 0 8px 20px rgba(0, 0, 0, 0.3);
   }
   .mini .title {
     font-size: 16px;
@@ -690,11 +684,6 @@
   }
   .phone .panel {
     max-width: none;
-  }
-  /* 盤ひとつ　小さき窓から　大きな窓へ */
-  .phone .art :global(.cover),
-  .phone .thumb {
-    view-transition-name: cover;
   }
   .mini .thumb {
     padding: 0;
@@ -726,7 +715,6 @@
     width: 44px;
     height: 44px;
     border-radius: 7px;
-    box-shadow: none;
   }
   .who .meta {
     display: flex;
