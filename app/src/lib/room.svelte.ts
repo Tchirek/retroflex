@@ -3,7 +3,7 @@ import { Clock } from "./clock";
 import { derive, seal, unseal, type Keys } from "./crypto";
 import type { Profile } from "./names";
 
-export type QItem = Snap & { qid: number; by: number };
+export type QItem = Snap & { qid: number; by: number; auto?: boolean };
 export type Member = { id: number; profile: Profile | null; draft: string };
 export type Line = { key: string; from: number; text: string; at: number; nick: string; hue: number; mine: boolean };
 export type Mode = "end" | "next" | "now";
@@ -213,7 +213,11 @@ export class Room {
     this.raw({ t: "pause" });
   }
 
+  // 応え待たず　針を先にと　動かしぬ
   seek(pos: number): void {
+    const dur = this.current?.duration ?? 0;
+    this.pos = Math.max(0, dur > 0 ? Math.min(pos, dur) : pos);
+    this.at = this.clock.now() + (this.playing ? 450 : 0);
     this.raw({ t: "seek", pos });
   }
 
