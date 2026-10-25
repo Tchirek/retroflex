@@ -40,7 +40,11 @@ pub struct Library {
 #[serde(tag = "op", rename_all = "lowercase")]
 pub enum Op {
     Library,
-    Audio { track: String },
+    Audio {
+        track: String,
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        relay: bool,
+    },
     Cover { cover: String, thumb: bool },
     Lyrics { track: String },
 }
