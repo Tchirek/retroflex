@@ -13,3 +13,5 @@ node_modules/
 nas-station/
 vps-logs/
 .wrangler/
+# 判と鍵　手元に置けど　外へ出さず
+/keys/
