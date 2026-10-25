@@ -1,12 +1,14 @@
 <script lang="ts">
   import { snap, type Snap, type Station, type Track } from "../lib/api";
   import { clock } from "../lib/library";
+  import { isApp } from "../lib/links";
+  import { press } from "../lib/press";
   import type { Mode } from "../lib/room.svelte";
   import AddToggle from "./AddToggle.svelte";
   import Art from "./Art.svelte";
   import Icon from "./Icon.svelte";
   import Keep from "./Keep.svelte";
-  import { isApp } from "../lib/links";
+  import Tick from "./Tick.svelte";
 
   let {
     tracks,
@@ -19,6 +21,8 @@
     nowId,
     playing = false,
     onplaypause,
+    picked,
+    onpick,
   }: {
     tracks: Track[];
     station: Station | null;
@@ -30,34 +34,51 @@
     nowId?: string;
     playing?: boolean;
     onplaypause?: () => void;
+    picked?: Set<string> | null;
+    onpick?: (id: string) => void;
   } = $props();
+
+  function hit(t: Track) {
+    if (picked) return onpick?.(t.id);
+    if (t.id === nowId && onplaypause) return onplaypause();
+    onadd([snap(t)], "now");
+  }
 </script>
 
 <!-- 一行に　今か次かか　末にかと -->
-<div class="rows">
+<div class="rows" class:picking={!!picked}>
   {#each tracks as t, i (t.id)}
     {@const on = queued([t.id])}
     {@const here = t.id === nowId}
-    <div class="row" class:on class:here>
-      <button class="hit" onclick={() => (here && onplaypause ? onplaypause() : onadd([snap(t)], "now"))} aria-label={t.title}>
+    {@const sel = !!picked?.has(t.id)}
+    <div class="row" class:on class:here class:sel>
+      <button class="hit" use:press={onpick && (() => onpick(t.id))} onclick={() => hit(t)} aria-label={t.title}>
         {#if art}
-          <span class="lead art"><Art {station} cover={t.cover} /><span class="go"><Icon name={here && playing ? "pause" : "play"} size={16} /></span></span>
+          <span class="lead art">
+            <Art {station} cover={t.cover} />
+            <span class="go"><Icon name={here && playing ? "pause" : "play"} size={16} /></span>
+            {#if picked}<span class="tick"><Tick on={sel} /></span>{/if}
+          </span>
         {:else}
-          <span class="lead no"><span class="n">{numbered ? (t.track ?? i + 1) : ""}</span><span class="go"><Icon name={here && playing ? "pause" : "play"} size={15} /></span></span>
+          <span class="lead no">
+            {#if picked}<Tick on={sel} />{:else}<span class="n">{numbered ? (t.track ?? i + 1) : ""}</span><span class="go"><Icon name={here && playing ? "pause" : "play"} size={15} /></span>{/if}
+          </span>
         {/if}
         <span class="meta">
-          <span class="title ellipsis">{t.title}</span>
-          <span class="sub ellipsis">{t.artist}{art ? ` · ${t.album}` : ""}</span>
+          <span class="title">{t.title}</span>
+          <span class="sub ellipsis">{t.artist}{art ? ` · ${t.album}` : ""}<span class="tail"> · {clock(t.duration)}</span></span>
         </span>
         <span class="dur">{clock(t.duration)}</span>
       </button>
-      <span class="acts">
-        {#if isApp && station}<Keep {station} tracks={[t]} />{/if}
-        <button class="icon-btn nextup" aria-label="Play next" onclick={() => onadd([snap(t)], "next")}>
-          <Icon name="playnext" size={18} />
-        </button>
-        <AddToggle {on} onclick={() => toggle([snap(t)])} />
-      </span>
+      {#if !picked}
+        <span class="acts">
+          {#if isApp && station}<Keep {station} tracks={[t]} />{/if}
+          <button class="icon-btn nextup" aria-label="Play next" onclick={() => onadd([snap(t)], "next")}>
+            <Icon name="playnext" size={18} />
+          </button>
+          <AddToggle {on} onclick={() => toggle([snap(t)])} />
+        </span>
+      {/if}
     </div>
   {/each}
 </div>
@@ -66,17 +87,33 @@
   .rows {
     display: flex;
     flex-direction: column;
+    container-type: inline-size;
   }
   .row {
     display: flex;
     align-items: center;
+    min-height: 58px;
     border-radius: 10px;
     content-visibility: auto;
     contain-intrinsic-size: auto 58px;
     transition: background 0.12s;
   }
-  .row:hover {
-    background: rgba(255, 255, 255, 0.08);
+  @media (hover: hover) {
+    .row:hover {
+      background: rgba(255, 255, 255, 0.08);
+    }
+    .row:hover .go {
+      opacity: 1;
+    }
+    .row:hover .n {
+      opacity: 0;
+    }
+    .row:hover .acts {
+      opacity: 1;
+    }
+  }
+  .row.sel {
+    background: rgba(255, 255, 255, 0.1);
   }
   .hit {
     flex: 1;
@@ -86,6 +123,7 @@
     gap: 14px;
     padding: 8px 10px;
     text-align: left;
+    -webkit-touch-callout: none;
   }
   .lead {
     position: relative;
@@ -118,11 +156,15 @@
   .art .go {
     background: rgba(0, 0, 0, 0.45);
   }
-  .row:hover .go {
-    opacity: 1;
+  .picking .go {
+    display: none;
   }
-  .row:hover .n {
-    opacity: 0;
+  .tick {
+    position: absolute;
+    inset: 0;
+    display: grid;
+    place-items: center;
+    background: rgba(0, 0, 0, 0.32);
   }
   .meta {
     flex: 1;
@@ -133,6 +175,9 @@
   .title {
     font-weight: 600;
     font-size: 14.5px;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
   }
   .here .title {
     color: #fff;
@@ -144,6 +189,9 @@
   .sub {
     font-size: 13px;
     color: var(--fg-2);
+  }
+  .tail {
+    display: none;
   }
   .dur {
     color: var(--fg-3);
@@ -157,7 +205,6 @@
     opacity: 0;
     transition: opacity 0.12s;
   }
-  .row:hover .acts,
   .row.on .acts,
   .acts:focus-within {
     opacity: 1;
@@ -168,6 +215,37 @@
     }
     .acts .nextup {
       display: none;
+    }
+  }
+  /* 狭き窓　名は二行まで　長さは下へ */
+  @container (max-width: 520px) {
+    .hit {
+      gap: 12px;
+      padding: 7px 4px 7px 8px;
+    }
+    .title {
+      white-space: normal;
+      display: -webkit-box;
+      -webkit-box-orient: vertical;
+      -webkit-line-clamp: 2;
+      line-clamp: 2;
+      line-height: 1.25;
+      font-size: 14px;
+      overflow-wrap: anywhere;
+    }
+    .sub {
+      font-size: 12.5px;
+      margin-top: 1px;
+    }
+    .tail {
+      display: inline;
+    }
+    .dur {
+      display: none;
+    }
+    .acts {
+      gap: 0;
+      padding-right: 2px;
     }
   }
 </style>
