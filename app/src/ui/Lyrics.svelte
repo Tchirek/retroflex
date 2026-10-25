@@ -18,6 +18,13 @@
     return first && first.t > 4 ? [{ t: 0, text: "" }, ...lyrics.lines] : lyrics.lines;
   });
   const active = $derived(lyrics?.synced ? activeLine(lines, time + 0.3) : -1);
+  // 一跳びに　幾行越えれば　揃えて動く
+  let last = -1;
+  const leap = $derived.by(() => {
+    const jump = Math.abs(active - last) > 1;
+    last = active;
+    return jump;
+  });
   const shift = $derived(manual ?? height * 0.32 - (tops[Math.max(0, active)] ?? 0));
 
   // 行ごとの　高さを測り　位置を知る
@@ -89,7 +96,7 @@
           style:--y="{lyrics.synced ? shift : 0}px"
           style:--s={i === active || !lyrics.synced ? 1 : 0.965}
           style:--blur="{lyrics.synced && i !== active ? Math.min(Math.abs(d), 6) * 0.55 : 0}px"
-          style:--d="{d > 0 ? Math.min(d, 8) * 40 : 0}ms"
+          style:--d="{d > 0 && !leap ? Math.min(d, 8) * 40 : 0}ms"
           onclick={() => pick(line)}
         >
           {#if line.text}
@@ -160,8 +167,13 @@
       filter 0.2s,
       background-color 0.08s linear;
   }
-  .line:hover {
-    background-color: rgba(255, 255, 255, 0.09);
+  @media (hover: hover) {
+    .line:hover {
+      background-color: rgba(255, 255, 255, 0.09);
+    }
+    .plain .line:hover {
+      background-color: transparent;
+    }
   }
   .line:active {
     background-color: rgba(255, 255, 255, 0.14);
@@ -179,9 +191,6 @@
   .plain .line {
     color: rgba(255, 255, 255, 0.82);
     cursor: default;
-  }
-  .plain .line:hover {
-    background-color: transparent;
   }
   .sub {
     font-size: 0.6em;
