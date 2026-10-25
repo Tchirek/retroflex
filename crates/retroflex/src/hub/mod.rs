@@ -13,7 +13,7 @@ use axum::routing::{get, post};
 use clap::Args;
 use tower_http::cors::CorsLayer;
 
-use rooms::Rooms;
+use rooms::{Invites, Rooms};
 use stations::Stations;
 
 #[derive(Args)]
@@ -29,15 +29,17 @@ pub struct HubArgs {
 pub struct Hub {
     stations: Stations,
     rooms: Rooms,
+    invites: Invites,
     token: Arc<str>,
 }
 
 // 辻に立ち　行き交う声を　繋ぐのみ
 pub async fn run(a: HubArgs) -> Result<()> {
-    let hub = Hub { stations: Stations::default(), rooms: Rooms::default(), token: a.token.into() };
+    let hub = Hub { stations: Stations::default(), rooms: Rooms::default(), invites: Invites::default(), token: a.token.into() };
 
     let clock = hub.rooms.clone();
     let stations = hub.stations.clone();
+    let invites = hub.invites.clone();
     tokio::spawn(async move {
         let mut tick = tokio::time::interval(Duration::from_secs(1));
         for n in 0u64.. {
@@ -45,6 +47,7 @@ pub async fn run(a: HubArgs) -> Result<()> {
             clock.tick(&stations);
             if n % 30 == 0 {
                 clock.sweep();
+                invites.sweep();
             }
         }
     });
@@ -60,6 +63,9 @@ pub async fn run(a: HubArgs) -> Result<()> {
         .route("/api/rooms", post(rooms::create))
         .route("/api/rooms/{id}", get(rooms::probe))
         .route("/api/rooms/{id}/ws", get(rooms::join))
+        .route("/api/match", post(rooms::matchmake))
+        .route("/api/invites", post(rooms::invite))
+        .route("/api/invites/{code}", get(rooms::redeem))
         .fallback(assets::serve)
         .layer(CorsLayer::permissive())
         .with_state(hub);

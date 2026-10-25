@@ -32,6 +32,8 @@ const SEALED: usize = 40;
 const PUBLIC_CAP: usize = 12;
 const PUBLIC_AHEAD: usize = 10;
 const PUBLIC_EACH: usize = 2;
+const INVITE_LIFE: Duration = Duration::from_secs(600);
+const INVITE_ALPHABET: &[u8] = b"ABCDEFGHJKMNPQRSTUVWXYZ23456789";
 
 // 曲の影　名と長さだけ　写し取る
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -451,12 +453,26 @@ impl Inner {
             _ => {}
         }
     }
+
+    // 似た耳を　人の数とで　はかり合う
+    fn score(&self, taste: &HashSet<String>) -> f64 {
+        let n = self.members.len() as f64;
+        let size = if n == 0.0 { 0.2 } else { (1.0 - (n - 4.0).abs() / 8.0).max(0.0) };
+        let active = if self.playing && self.cur.is_some() { 1.0 } else { 0.3 };
+        let theirs: HashSet<String> = self.queue.iter().rev().take(30).map(|i| i.track.artist.to_lowercase()).collect();
+        let shared = taste.intersection(&theirs).count() as f64;
+        let union = taste.union(&theirs).count() as f64;
+        let overlap = if union > 0.0 { shared / union } else { 0.0 };
+        let jitter = getrandom::u32().unwrap_or(0) as f64 / u32::MAX as f64;
+        size + 0.6 * active + 1.2 * overlap + 0.15 * jitter
+    }
 }
 
 // 合言葉　知る者だけの　小部屋なり
 pub struct Room {
     station: String,
     ticket: String,
+    secret: Option<String>,
     inner: Mutex<Inner>,
 }
 
@@ -508,12 +524,26 @@ fn feed(inner: &mut Inner, station: &str, stations: &Stations, now: f64) {
     }
 }
 
+// 合ひ言葉　六つの字にて　しばし預く
+#[derive(Clone, Default)]
+pub struct Invites(Arc<Mutex<HashMap<String, (String, String, Instant)>>>);
+
+impl Invites {
+    pub fn sweep(&self) {
+        self.0.lock().unwrap().retain(|_, (_, _, at)| at.elapsed() < INVITE_LIFE);
+    }
+}
+
 #[derive(Deserialize)]
 pub struct CreateReq {
     station: String,
     #[serde(default)]
     key: String,
     ticket: String,
+    #[serde(default)]
+    public: bool,
+    #[serde(default)]
+    secret: Option<String>,
 }
 
 // 駅の鍵　持つ者ひとり　部屋を開く
@@ -526,6 +556,11 @@ pub async fn create(State(hub): State<Hub>, Json(req): Json<CreateReq>) -> Respo
     if !(16..=128).contains(&req.ticket.len()) {
         return StatusCode::BAD_REQUEST.into_response();
     }
+    let secret = match (req.public, req.secret) {
+        (true, Some(s)) if link.open && (16..=64).contains(&s.len()) => Some(s),
+        (true, _) => return StatusCode::BAD_REQUEST.into_response(),
+        (false, _) => None,
+    };
     let mut rooms = hub.rooms.0.lock().unwrap();
     if rooms.len() >= MAX_ROOMS {
         return StatusCode::TOO_MANY_REQUESTS.into_response();
@@ -536,11 +571,71 @@ pub async fn create(State(hub): State<Hub>, Json(req): Json<CreateReq>) -> Respo
             break id;
         }
     };
-    let inner = Inner { empty_since: Some(Instant::now()), ..Default::default() };
-    let room = Room { station: req.station, ticket: key_hash(&req.ticket), inner: Mutex::new(inner) };
+    let inner = Inner { empty_since: Some(Instant::now()), public: secret.is_some(), ..Default::default() };
+    let room = Room { station: req.station, ticket: key_hash(&req.ticket), secret, inner: Mutex::new(inner) };
     rooms.insert(id.clone(), Arc::new(room));
     tracing::info!("room {id} opened");
     Json(json!({ "id": id })).into_response()
+}
+
+#[derive(Deserialize)]
+pub struct MatchReq {
+    station: String,
+    #[serde(default)]
+    artists: Vec<String>,
+}
+
+// 広間から　耳の合う部屋　ひとつ選る
+pub async fn matchmake(State(hub): State<Hub>, Json(req): Json<MatchReq>) -> Response {
+    let taste: HashSet<String> = req.artists.iter().take(50).map(|a| a.to_lowercase()).collect();
+    let rooms = hub.rooms.0.lock().unwrap();
+    let best = rooms
+        .iter()
+        .filter(|(_, r)| r.station == req.station && r.secret.is_some())
+        .filter_map(|(id, r)| {
+            let inner = r.inner.lock().unwrap();
+            (inner.members.len() < PUBLIC_CAP).then(|| (inner.score(&taste), id, r))
+        })
+        .max_by(|a, b| a.0.total_cmp(&b.0));
+    match best {
+        Some((_, id, r)) => Json(json!({ "id": id, "secret": r.secret })).into_response(),
+        None => StatusCode::NOT_FOUND.into_response(),
+    }
+}
+
+#[derive(Deserialize)]
+pub struct InviteReq {
+    room: String,
+    ticket: String,
+    secret: String,
+}
+
+// 長き道　六字に縮め　口伝え
+pub async fn invite(State(hub): State<Hub>, Json(req): Json<InviteReq>) -> Response {
+    let Some(room) = hub.rooms.get(&req.room) else { return StatusCode::NOT_FOUND.into_response() };
+    if !same(&key_hash(&req.ticket), &room.ticket) || !(16..=64).contains(&req.secret.len()) {
+        return StatusCode::FORBIDDEN.into_response();
+    }
+    let mut codes = hub.invites.0.lock().unwrap();
+    let code = loop {
+        let bytes = getrandom::u64().unwrap_or(0).to_le_bytes();
+        let c: String = bytes[..6].iter().map(|b| INVITE_ALPHABET[*b as usize % INVITE_ALPHABET.len()] as char).collect();
+        if !codes.contains_key(&c) {
+            break c;
+        }
+    };
+    codes.insert(code.clone(), (req.room, req.secret, Instant::now()));
+    Json(json!({ "code": code, "ttl": INVITE_LIFE.as_secs() })).into_response()
+}
+
+pub async fn redeem(State(hub): State<Hub>, Path(code): Path<String>) -> Response {
+    let codes = hub.invites.0.lock().unwrap();
+    match codes.get(&code.to_ascii_uppercase()) {
+        Some((room, secret, at)) if at.elapsed() < INVITE_LIFE && hub.rooms.get(room).is_some() => {
+            Json(json!({ "id": room, "secret": secret })).into_response()
+        }
+        _ => StatusCode::NOT_FOUND.into_response(),
+    }
 }
 
 #[derive(Deserialize)]
