@@ -29,6 +29,9 @@ const CHAT_CHARS: usize = 450;
 const CHAT_WINDOW: Duration = Duration::from_secs(60);
 const DRAFT_GAP: Duration = Duration::from_millis(25);
 const SEALED: usize = 40;
+const PUBLIC_CAP: usize = 12;
+const PUBLIC_AHEAD: usize = 10;
+const PUBLIC_EACH: usize = 2;
 
 // 曲の影　名と長さだけ　写し取る
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -158,6 +161,8 @@ struct Inner {
     backlog: VecDeque<Value>,
     empty_since: Option<Instant>,
     starved: bool,
+    public: bool,
+    skip: HashSet<u32>,
 }
 
 fn msg(v: &Value) -> Message {
@@ -178,12 +183,20 @@ impl Inner {
         self.cur.and_then(|q| self.index_of(q)).map(|i| &self.queue[i])
     }
 
+    fn ahead(&self) -> &[Item] {
+        match self.cur.and_then(|q| self.index_of(q)) {
+            Some(i) => &self.queue[i + 1..],
+            None => &self.queue[..],
+        }
+    }
+
     // 少し先　皆で揃えて　針落とす
     fn start(&mut self, qid: Option<u32>, pos: f64, now: f64) {
         self.cur = qid;
         self.pos = pos.max(0.0);
         self.playing = qid.is_some();
         self.at = now + LEAD_MS;
+        self.skip.clear();
     }
 
     fn advance(&mut self, step: isize, now: f64) {
@@ -204,6 +217,7 @@ impl Inner {
             self.playing = false;
             self.pos = 0.0;
             self.at = now;
+            self.skip.clear();
             self.starved = !self.queue.is_empty();
         }
     }
@@ -250,6 +264,8 @@ impl Inner {
             "pos": self.pos,
             "at": self.at,
             "now": now,
+            "public": self.public,
+            "skip": self.skip.len(),
         })
     }
 
@@ -275,8 +291,25 @@ impl Inner {
         self.broadcast(&s, None);
     }
 
+    // 広間では　一人二つと　十まで積む
+    fn admit(&self, me: u32, tracks: Vec<Snap>) -> Vec<Snap> {
+        let room = PUBLIC_AHEAD.saturating_sub(self.ahead().len());
+        let mine = self.ahead().iter().filter(|i| i.by == me).count();
+        let allowed = room.min(PUBLIC_EACH.saturating_sub(mine));
+        tracks.into_iter().take(allowed).collect()
+    }
+
+    // 票の数　半ばを越せば　次へ行く
+    fn tally(&mut self, now: f64) {
+        if !self.skip.is_empty() && self.skip.len() * 2 > self.members.len() {
+            self.advance(1, now);
+        }
+        self.changed(now);
+    }
+
     // 平らかに　誰の頼みも　同じ重さ
     fn handle(&mut self, me: u32, cmd: In, now: f64) {
+        let public = self.public;
         match cmd {
             In::Ping { .. } => {}
             In::Profile { ct } if ct.len() <= 2048 => {
@@ -317,6 +350,7 @@ impl Inner {
                 self.broadcast(&json!({ "t": "draft", "from": me, "ct": ct }), Some(me));
             }
             In::Enqueue { tracks, mode } => {
+                let (tracks, mode) = if public { (self.admit(me, tracks), Mode::End) } else { (tracks, mode) };
                 let room = MAX_QUEUE.saturating_sub(self.queue.len());
                 let items: Vec<Item> = tracks
                     .into_iter()
@@ -326,7 +360,7 @@ impl Inner {
                         Item { qid: self.next_qid, by: me, auto: false, track }
                     })
                     .collect();
-                let Some(first) = items.first().map(|i| i.qid) else { return };
+                let Some(first) = items.first().map(|i| i.qid) else { return self.changed(now) };
                 let at = match (mode, self.cur.and_then(|q| self.index_of(q))) {
                     (Mode::Next | Mode::Now, Some(i)) => i + 1,
                     _ => self.queue.len(),
@@ -340,6 +374,9 @@ impl Inner {
             }
             In::Remove { qid } => {
                 let Some(i) = self.index_of(qid) else { return };
+                if public && (self.cur == Some(qid) || !(self.queue[i].by == me || self.queue[i].auto)) {
+                    return self.changed(now);
+                }
                 if self.cur == Some(qid) {
                     let was_playing = self.playing;
                     self.advance(1, now);
@@ -352,13 +389,14 @@ impl Inner {
                 self.starved = false;
                 self.changed(now);
             }
-            In::Move { qid, to } => {
+            In::Move { qid, to } if !public => {
                 let Some(i) = self.index_of(qid) else { return };
                 let item = self.queue.remove(i);
                 let to = to.min(self.queue.len());
                 self.queue.insert(to, item);
                 self.changed(now);
             }
+            In::Play { .. } if public && self.cur.is_some() => self.changed(now),
             In::Play { qid, pos } => {
                 match qid.filter(|q| self.index_of(*q).is_some()) {
                     Some(q) => self.start(Some(q), pos.unwrap_or(0.0), now),
@@ -371,6 +409,7 @@ impl Inner {
                 }
                 self.changed(now);
             }
+            In::Pause | In::Seek { .. } | In::Prev if public => self.changed(now),
             In::Pause => {
                 if self.playing {
                     self.pos = self.position(now);
@@ -384,6 +423,10 @@ impl Inner {
                 self.pos = if dur > 0.0 { pos.clamp(0.0, dur) } else { pos.max(0.0) };
                 self.at = now + if self.playing { LEAD_MS } else { 0.0 };
                 self.changed(now);
+            }
+            In::Next if public => {
+                self.skip.insert(me);
+                self.tally(now);
             }
             In::Next => {
                 self.advance(1, now);
@@ -530,13 +573,14 @@ async fn member(room: Arc<Room>, stations: Stations, socket: WebSocket) {
     let (tx, mut rx) = mpsc::channel::<Message>(512);
     let seat = {
         let mut inner = room.inner.lock().unwrap();
-        (inner.members.len() < MAX_MEMBERS).then(|| {
+        let cap = if inner.public { PUBLIC_CAP } else { MAX_MEMBERS };
+        (inner.members.len() < cap).then(|| {
             inner.next_member += 1;
             let me = inner.next_member;
             let now = now_ms();
             let members: Vec<Value> = inner.members.iter().map(|(id, m)| json!({ "id": id, "ct": m.profile })).collect();
             let backlog: Vec<&Value> = inner.backlog.iter().collect();
-            let welcome = json!({ "t": "welcome", "you": me, "now": now, "station": room.station, "members": members, "backlog": backlog });
+            let welcome = json!({ "t": "welcome", "you": me, "now": now, "station": room.station, "public": inner.public, "members": members, "backlog": backlog });
             let _ = tx.try_send(msg(&welcome));
             let _ = tx.try_send(msg(&inner.state(now)));
             inner.broadcast(&json!({ "t": "join", "id": me }), None);
@@ -588,6 +632,9 @@ async fn member(room: Arc<Room>, stations: Stations, socket: WebSocket) {
         let mut inner = room.inner.lock().unwrap();
         inner.members.remove(&me);
         inner.broadcast(&json!({ "t": "leave", "id": me }), None);
+        if inner.skip.remove(&me) || inner.public && !inner.skip.is_empty() {
+            inner.tally(now_ms());
+        }
         if inner.members.is_empty() {
             inner.empty_since = Some(Instant::now());
         }
@@ -664,6 +711,36 @@ mod tests {
         assert!(!r.starved);
         r.refill(&pool, 3000.0);
         assert_eq!(r.queue.len(), 3);
+    }
+
+    // 広間では　止めず戻らず　票で飛ぶ
+    #[test]
+    fn public_rules() {
+        let mut r = Inner { public: true, ..Default::default() };
+        for id in 1..=3 {
+            seat(&mut r, id);
+        }
+        let many: Vec<Snap> = (0..5).map(|i| snap(&format!("a{i}"), 100.0)).collect();
+        r.handle(1, In::Enqueue { tracks: many, mode: Mode::Now }, 0.0);
+        assert_eq!(r.queue.len(), 2);
+        r.handle(1, In::Pause, 1000.0);
+        assert!(r.playing);
+        r.handle(1, In::Seek { pos: 50.0 }, 1000.0);
+        assert_eq!(r.pos, 0.0);
+
+        let cur = r.cur;
+        r.handle(2, In::Next, 2000.0);
+        assert_eq!(r.cur, cur);
+        r.handle(3, In::Next, 2000.0);
+        assert_ne!(r.cur, cur);
+        assert!(r.skip.is_empty());
+
+        r.handle(2, In::Enqueue { tracks: vec![snap("b", 10.0)], mode: Mode::End }, 3000.0);
+        let theirs = r.queue.iter().find(|i| i.by == 2).unwrap().qid;
+        r.handle(3, In::Remove { qid: theirs }, 3000.0);
+        assert!(r.index_of(theirs).is_some());
+        r.handle(2, In::Remove { qid: theirs }, 3000.0);
+        assert!(r.index_of(theirs).is_none());
     }
 
     // 一分に　四百五十字　越えるなと
