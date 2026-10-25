@@ -22,6 +22,8 @@ enum Cmd {
     Hub(hub::HubArgs),
     #[command(about = "Share a music library through a hub")]
     Station(station::StationArgs),
+    #[command(about = "Copy a library into an S3 or R2 bucket")]
+    Sync(station::sync::SyncArgs),
 }
 
 // 灯をともし　ささやく声を　書き留める
@@ -34,5 +36,6 @@ async fn main() -> anyhow::Result<()> {
     match Cli::parse().cmd {
         Cmd::Hub(a) => hub::run(a).await,
         Cmd::Station(a) => station::run(a).await,
+        Cmd::Sync(a) => station::sync::run(a).await,
     }
 }

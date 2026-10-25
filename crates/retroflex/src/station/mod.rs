@@ -1,7 +1,9 @@
 mod httpread;
+mod s3;
 mod scan;
 mod serve;
 mod source;
+pub mod sync;
 mod uplink;
 
 use std::path::PathBuf;
@@ -16,11 +18,40 @@ use crate::util::{key_hash, token};
 use scan::Index;
 use source::Source;
 
+// 倉の鍵　四つの札を　ひと綴じに
+#[derive(Args, Clone)]
+pub struct BucketArgs {
+    #[arg(long = "s3-endpoint", env = "RETROFLEX_S3_ENDPOINT", help = "S3 endpoint, e.g. https://<account>.r2.cloudflarestorage.com")]
+    endpoint: Option<String>,
+    #[arg(long = "s3-region", env = "RETROFLEX_S3_REGION", default_value = "auto", help = "S3 region (R2 uses auto)")]
+    region: String,
+    #[arg(long = "s3-key", env = "RETROFLEX_S3_KEY", hide_env_values = true, help = "S3 access key ID")]
+    key: Option<String>,
+    #[arg(long = "s3-secret", env = "RETROFLEX_S3_SECRET", hide_env_values = true, help = "S3 secret access key")]
+    secret: Option<String>,
+}
+
+impl BucketArgs {
+    pub fn client(&self) -> Result<Option<s3::S3>> {
+        match (&self.endpoint, &self.key, &self.secret) {
+            (Some(e), Some(k), Some(s)) => Ok(Some(s3::S3::new(e, &self.region, k, s)?)),
+            _ => Ok(None),
+        }
+    }
+}
+
 #[derive(Args)]
 pub struct StationArgs {
     #[arg(long, env = "RETROFLEX_NAME", help = "Station name (a-z, 0-9, -), used in links")]
     name: String,
-    #[arg(long = "library", short = 'l', required = true, help = "Music folder or AList folder URL; repeatable")]
+    #[arg(
+        long = "library",
+        short = 'l',
+        required = true,
+        env = "RETROFLEX_LIBRARY",
+        value_delimiter = ';',
+        help = "Music folder, AList folder URL or r2://bucket/prefix; repeatable"
+    )]
     libraries: Vec<String>,
     #[arg(long, env = "RETROFLEX_HUB", help = "Hub URL, e.g. https://listen.example.org")]
     hub: String,
@@ -36,12 +67,17 @@ pub struct StationArgs {
     public: Option<String>,
     #[arg(long, env = "RETROFLEX_OPEN", help = "Let anyone on the hub browse this library and open rooms")]
     open: bool,
+    #[arg(long, env = "RETROFLEX_RELAY", help = "Stream bucket audio through the station instead of handing out direct links")]
+    relay: bool,
+    #[command(flatten)]
+    bucket: BucketArgs,
 }
 
 // 駅ひとつ　棚と目録　鍵を持つ
 pub struct Station {
     pub name: String,
     pub open: bool,
+    pub direct: bool,
     pub sources: Vec<Arc<Source>>,
     pub cache: PathBuf,
     index: RwLock<Arc<Index>>,
@@ -98,16 +134,17 @@ pub async fn run(a: StationArgs) -> Result<()> {
         .unwrap_or_else(|| dirs::cache_dir().unwrap_or_else(|| PathBuf::from(".")).join("retroflex").join(&a.name));
     std::fs::create_dir_all(&cache).with_context(|| format!("cache {}", cache.display()))?;
     let key = station_key(&cache)?;
+    let bucket = a.bucket.client()?;
     let sources = a
         .libraries
         .iter()
-        .map(|l| Source::parse(l, a.alist_token.clone()).map(Arc::new))
+        .map(|l| Source::parse(l, a.alist_token.clone(), bucket.as_ref()).map(Arc::new))
         .collect::<Result<Vec<_>>>()?;
 
     tracing::info!("scanning {} source(s)", sources.len());
     let first = scan::scan(&a.name, &sources, &cache).await?;
     tracing::info!("{} tracks, {} covers", first.items.len(), first.covers.len());
-    let st = Arc::new(Station { name: a.name.clone(), open: a.open, sources, cache, index: RwLock::new(Arc::new(first)) });
+    let st = Arc::new(Station { name: a.name.clone(), open: a.open, direct: !a.relay, sources, cache, index: RwLock::new(Arc::new(first)) });
 
     let (ws, http) = hub_urls(&a.hub);
     let shown = a.public.as_deref().map(|p| p.trim_end_matches('/').to_string()).unwrap_or(http);
