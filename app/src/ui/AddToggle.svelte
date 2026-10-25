@@ -80,8 +80,8 @@
     animation: pop 0.38s var(--spring);
   }
   @keyframes pop {
-    40% {
-      transform: scale(1.18);
+    35% {
+      transform: scale(0.82);
     }
     100% {
       transform: scale(1);
