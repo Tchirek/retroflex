@@ -134,13 +134,15 @@ be removed like any other track; removing them does not summon more.
 | `--listen` / `RETROFLEX_LISTEN` | hub | address to bind, default `127.0.0.1:7746` |
 | `--token` / `RETROFLEX_HUB_TOKEN` | both | shared secret that admits stations |
 | `--name` / `RETROFLEX_NAME` | station | name used in links, `a-z 0-9 -` |
-| `--library`, `-l` | station | folder or AList folder URL, repeatable |
+| `--library`, `-l` / `RETROFLEX_LIBRARY` | station | folder, AList folder URL or `r2://bucket/prefix`; repeatable, `;`-separated in the env |
 | `--hub` / `RETROFLEX_HUB` | station | hub URL, `https://` or `http://` |
 | `--alist-token` / `RETROFLEX_ALIST_TOKEN` | station | for private AList folders |
 | `--cache` / `RETROFLEX_CACHE` | station | tags, covers, thumbnails and the station key |
 | `--rescan` | station | minutes between rescans, default 30 |
 | `--open` / `RETROFLEX_OPEN` | station | let any visitor of the hub browse and open rooms, no key needed |
 | `--public` / `RETROFLEX_PUBLIC_URL` | station | hub URL to print in links when `--hub` points at localhost |
+| `--s3-endpoint`, `--s3-key`, `--s3-secret` / `RETROFLEX_S3_*` | station, sync | bucket credentials |
+| `--relay` / `RETROFLEX_RELAY` | station | stream bucket audio through the station instead of signed links |
 
 Formats are played by the platform's own decoder, so anything the browser or
 webview can play works: MP3, AAC/M4A, FLAC, Ogg Vorbis/Opus, WAV, WebM. Lyrics
@@ -165,10 +167,39 @@ ssh root@vps 'cd /tmp/rf && sh install.sh ./retroflex ./<id>.json listen.example
 
 The installer prints the hub token for your stations.
 
+### Music in a bucket
+
+A small VPS has little disk and every byte it relays costs it bandwidth. Put
+the library in an S3-compatible bucket instead, Cloudflare R2 being the obvious
+fit (no egress fees). The station then reads tags and covers from the bucket,
+and when someone presses play it answers with a short-lived signed link, so the
+audio flows from the bucket's edge straight to the listener and never crosses
+the VPS or the tunnel.
+
+1. Create a private bucket and give it this CORS policy:
+   `[{"AllowedOrigins":["*"],"AllowedMethods":["GET","HEAD"],"AllowedHeaders":["Range"],"ExposeHeaders":["Content-Length","Content-Range","Accept-Ranges"],"MaxAgeSeconds":86400}]`
+2. Create an API token with **Object Read & Write** on that bucket only, without
+   an IP filter (listeners use links signed with it).
+3. Store the credentials on the hub machine with `sh deploy/r2-setup.sh`, which
+   writes `/etc/retroflex/r2.env`.
+4. Copy music in from wherever it lives today, a folder or an AList share; files
+   already present with the same size are skipped, nothing is ever deleted:
+
+   ```sh
+   retroflex sync --from ~/Music --to r2://retroflex/home
+   ```
+5. Point the station at the bucket: `RETROFLEX_LIBRARY=r2://retroflex/home`.
+
+Rescans pick up new uploads every 30 minutes. If listeners cannot reach the
+bucket endpoint directly, `--relay` makes the station stream the bytes itself.
+
+### Music on the VPS disk
+
 To keep a library on the VPS itself, copy it to `/srv/retroflex/music`, write
 `RETROFLEX_NAME`, `RETROFLEX_HUB=http://127.0.0.1:7746` and
 `RETROFLEX_PUBLIC_URL=https://listen.example.org` into
-`/etc/retroflex/station.env`, and enable `deploy/retroflex-station.service`.
+`/etc/retroflex/station.env` together with `RETROFLEX_LIBRARY=/srv/retroflex/music`,
+and enable `deploy/retroflex-station.service`.
 
 ## Apps
 
