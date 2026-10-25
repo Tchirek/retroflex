@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, HashMap, VecDeque};
+use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -13,6 +13,8 @@ use serde_json::{Value, json};
 use tokio::sync::mpsc;
 
 use super::Hub;
+use super::stations::Stations;
+use crate::proto::Track;
 use crate::util::{key_hash, now_ms, same, token};
 
 const LEAD_MS: f64 = 450.0;
@@ -21,6 +23,7 @@ const BACKLOG: usize = 200;
 const MAX_ROOMS: usize = 1000;
 const MAX_QUEUE: usize = 5000;
 const MAX_MEMBERS: usize = 64;
+const AUTO: usize = 3;
 
 // 曲の影　名と長さだけ　写し取る
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -36,12 +39,31 @@ pub struct Snap {
     cover: Option<String>,
 }
 
+impl From<&Track> for Snap {
+    fn from(t: &Track) -> Self {
+        Snap {
+            id: t.id.clone(),
+            title: t.title.clone(),
+            artist: t.artist.clone(),
+            album: t.album.clone(),
+            duration: t.duration,
+            cover: t.cover.clone(),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize)]
 struct Item {
     qid: u32,
     by: u32,
+    #[serde(skip_serializing_if = "is_false")]
+    auto: bool,
     #[serde(flatten)]
     track: Snap,
+}
+
+fn is_false(b: &bool) -> bool {
+    !*b
 }
 
 #[derive(Debug, Default, Clone, Copy, Deserialize, PartialEq)]
@@ -95,6 +117,7 @@ struct Inner {
     rev: u64,
     backlog: VecDeque<Value>,
     empty_since: Option<Instant>,
+    starved: bool,
 }
 
 fn msg(v: &Value) -> Message {
@@ -141,7 +164,40 @@ impl Inner {
             self.playing = false;
             self.pos = 0.0;
             self.at = now;
+            self.starved = !self.queue.is_empty();
         }
+    }
+
+    // 誰も来ず　籤で三つの　歌を足す
+    fn refill(&mut self, pool: &[Snap], now: f64) {
+        if !self.starved || self.members.is_empty() || pool.is_empty() {
+            return;
+        }
+        let picks: Vec<Snap> = {
+            let recent: HashSet<&str> = self.queue.iter().rev().take(40).map(|i| i.track.id.as_str()).collect();
+            let mut bag: Vec<&Snap> = pool.iter().filter(|t| !recent.contains(t.id.as_str())).collect();
+            if bag.len() < AUTO {
+                bag = pool.iter().collect();
+            }
+            let mut picks = Vec::new();
+            while picks.len() < AUTO && !bag.is_empty() {
+                let i = getrandom::u32().unwrap_or(0) as usize % bag.len();
+                picks.push(bag.swap_remove(i).clone());
+            }
+            picks
+        };
+        self.starved = false;
+        let first = self.next_qid + 1;
+        for track in picks {
+            self.next_qid += 1;
+            self.queue.push(Item { qid: self.next_qid, by: 0, auto: true, track });
+        }
+        if self.queue.len() > MAX_QUEUE {
+            let extra = self.queue.len() - MAX_QUEUE;
+            self.queue.drain(..extra);
+        }
+        self.start(Some(first), 0.0, now);
+        self.changed(now);
     }
 
     fn state(&self, now: f64) -> Value {
@@ -201,7 +257,7 @@ impl Inner {
                     .take(room)
                     .map(|track| {
                         self.next_qid += 1;
-                        Item { qid: self.next_qid, by: me, track }
+                        Item { qid: self.next_qid, by: me, auto: false, track }
                     })
                     .collect();
                 let Some(first) = items.first().map(|i| i.qid) else { return };
@@ -210,6 +266,7 @@ impl Inner {
                     _ => self.queue.len(),
                 };
                 self.queue.splice(at..at, items);
+                self.starved = false;
                 if mode == Mode::Now || self.cur.is_none() {
                     self.start(Some(first), 0.0, now);
                 }
@@ -226,6 +283,7 @@ impl Inner {
                     }
                 }
                 self.queue.remove(i);
+                self.starved = false;
                 self.changed(now);
             }
             In::Move { qid, to } => {
@@ -315,7 +373,7 @@ impl Rooms {
     }
 
     // 誰も来ず　針の終わりは　部屋が知る
-    pub fn tick(&self) {
+    pub fn tick(&self, stations: &Stations) {
         let now = now_ms();
         for room in self.0.lock().unwrap().values() {
             let mut inner = room.inner.lock().unwrap();
@@ -325,13 +383,26 @@ impl Rooms {
                 inner.advance(1, now);
                 inner.changed(now);
             }
+            if inner.starved && !inner.members.is_empty() {
+                feed(&mut inner, &room.station, stations, now);
+            }
         }
+    }
+}
+
+// 籤箱の　中身がなくば　取り寄せて
+fn feed(inner: &mut Inner, station: &str, stations: &Stations, now: f64) {
+    let Some(link) = stations.get(station) else { return };
+    match link.pool() {
+        Some(pool) => inner.refill(&pool, now),
+        None => link.warm(),
     }
 }
 
 #[derive(Deserialize)]
 pub struct CreateReq {
     station: String,
+    #[serde(default)]
     key: String,
     ticket: String,
 }
@@ -339,7 +410,8 @@ pub struct CreateReq {
 // 駅の鍵　持つ者ひとり　部屋を開く
 pub async fn create(State(hub): State<Hub>, Json(req): Json<CreateReq>) -> Response {
     let Some(link) = hub.stations.get(&req.station) else { return StatusCode::SERVICE_UNAVAILABLE.into_response() };
-    if !same(&key_hash(&req.key), &link.key) {
+    let keyless = link.open && req.key.is_empty();
+    if !keyless && !same(&key_hash(&req.key), &link.key) {
         return StatusCode::FORBIDDEN.into_response();
     }
     if !(16..=128).contains(&req.ticket.len()) {
@@ -379,7 +451,7 @@ pub async fn probe(State(hub): State<Hub>, Path(id): Path<String>, Query(q): Que
 pub async fn join(State(hub): State<Hub>, Path(id): Path<String>, Query(q): Query<JoinQuery>, ws: WebSocketUpgrade) -> Response {
     match hub.rooms.get(&id) {
         Some(room) if same(&key_hash(&q.t), &room.ticket) => {
-            ws.max_message_size(64 * 1024).on_upgrade(move |socket| member(room, socket))
+            ws.max_message_size(64 * 1024).on_upgrade(move |socket| member(room, hub.stations, socket))
         }
         Some(_) => StatusCode::FORBIDDEN.into_response(),
         None => StatusCode::NOT_FOUND.into_response(),
@@ -387,7 +459,7 @@ pub async fn join(State(hub): State<Hub>, Path(id): Path<String>, Query(q): Quer
 }
 
 // 戸を叩き　名もなき席に　腰おろす
-async fn member(room: Arc<Room>, socket: WebSocket) {
+async fn member(room: Arc<Room>, stations: Stations, socket: WebSocket) {
     let (mut sink, mut stream) = socket.split();
     let (tx, mut rx) = mpsc::channel::<Message>(512);
     let me = {
@@ -434,7 +506,12 @@ async fn member(room: Arc<Room>, socket: WebSocket) {
             let _ = tx.try_send(msg(&json!({ "t": "pong", "c": c, "s": now_ms() })));
             continue;
         }
-        room.inner.lock().unwrap().handle(me, cmd, now_ms());
+        let now = now_ms();
+        let mut inner = room.inner.lock().unwrap();
+        inner.handle(me, cmd, now);
+        if inner.starved {
+            feed(&mut inner, &room.station, &stations, now);
+        }
     }
 
     // 席を立ち　椅子の温みも　やがて消ゆ
@@ -486,4 +563,30 @@ mod tests {
         assert_eq!(r.cur, None);
         assert!(!r.playing);
     }
+
+    // 歌尽きて　籤の三つが　また鳴りぬ
+    #[test]
+    fn refills_when_the_queue_runs_dry() {
+        let (tx, _rx) = mpsc::channel(8);
+        let mut r = Inner::default();
+        r.members.insert(1, Member { profile: None, tx });
+        let pool: Vec<Snap> = (0..10).map(|i| snap(&format!("p{i}"), 60.0)).collect();
+        r.handle(1, In::Enqueue { tracks: vec![snap("x", 10.0)], mode: Mode::End }, 0.0);
+        r.handle(1, In::Next, 1000.0);
+        assert!(r.starved);
+        r.refill(&pool, 1000.0);
+        assert!(!r.starved);
+        assert_eq!(r.queue.len(), 4);
+        assert!(r.queue[1..].iter().all(|i| i.auto && i.by == 0));
+        assert_eq!(r.cur, Some(r.queue[1].qid));
+        assert!(r.playing);
+
+        let last = r.queue[3].qid;
+        r.handle(1, In::Play { qid: Some(last), pos: None }, 2000.0);
+        r.handle(1, In::Remove { qid: last }, 3000.0);
+        assert!(!r.starved);
+        r.refill(&pool, 3000.0);
+        assert_eq!(r.queue.len(), 3);
+    }
+
 }
