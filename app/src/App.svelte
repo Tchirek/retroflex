@@ -553,17 +553,15 @@
     height: 132px;
     border-radius: 50%;
     background: rgba(255, 255, 255, 0.12);
+    box-shadow: 0 0 0 0 rgba(255, 255, 255, 0.35);
     animation: call 2s var(--ease) infinite;
   }
   @keyframes call {
-    0%,
-    100% {
-      transform: scale(1);
-      background: rgba(255, 255, 255, 0.12);
+    70% {
+      box-shadow: 0 0 0 28px rgba(255, 255, 255, 0);
     }
-    50% {
-      transform: scale(0.9);
-      background: rgba(255, 255, 255, 0.2);
+    100% {
+      box-shadow: 0 0 0 0 rgba(255, 255, 255, 0);
     }
   }
 </style>
