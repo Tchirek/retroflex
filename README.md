@@ -142,7 +142,9 @@ be removed like any other track; removing them does not summon more.
 | `--open` / `RETROFLEX_OPEN` | station | let any visitor of the hub browse and open rooms, no key needed |
 | `--public` / `RETROFLEX_PUBLIC_URL` | station | hub URL to print in links when `--hub` points at localhost |
 | `--s3-endpoint`, `--s3-key`, `--s3-secret` / `RETROFLEX_S3_*` | station, sync | bucket credentials |
-| `--relay` / `RETROFLEX_RELAY` | station | stream bucket audio through the station instead of signed links |
+| `--relay` / `RETROFLEX_RELAY` | station | never hand out raw bucket-endpoint links |
+| `--media-url`, `--media-secret` / `RETROFLEX_MEDIA_*` | station | media Worker that serves the bucket on your own domain |
+| `--hot-mb` / `RETROFLEX_HOT_MB` | station | disk for recently relayed bucket audio, default 2048 |
 
 Formats are played by the platform's own decoder, so anything the browser or
 webview can play works: MP3, AAC/M4A, FLAC, Ogg Vorbis/Opus, WAV, WebM. Lyrics
@@ -190,8 +192,20 @@ the VPS or the tunnel.
    ```
 5. Point the station at the bucket: `RETROFLEX_LIBRARY=r2://retroflex/home`.
 
-Rescans pick up new uploads every 30 minutes. If listeners cannot reach the
-bucket endpoint directly, `--relay` makes the station stream the bytes itself.
+Rescans pick up new uploads every 30 minutes.
+
+The raw bucket endpoint is not reachable everywhere. `worker/` holds a small
+Cloudflare Worker that serves the bucket on your own subdomain instead: the
+station signs each link with HMAC and a six-hour expiry, the Worker checks it
+and streams from R2 with full Range and CORS support. Deploy it with
+`cd worker && npx wrangler deploy`, set the same random string as its
+`MEDIA_SECRET` (`npx wrangler secret put MEDIA_SECRET`) and as the station's
+`RETROFLEX_MEDIA_SECRET`, and point `RETROFLEX_MEDIA_URL` at the subdomain.
+
+If a listener still cannot reach it, the player retries through the station
+(`?relay=1`). Relayed tracks are kept on the station's disk, up to
+`RETROFLEX_HOT_MB` (2048 by default), dropping whatever was played longest ago.
+`--relay` stops the station from ever handing out raw bucket-endpoint links.
 
 ### Music on the VPS disk
 
