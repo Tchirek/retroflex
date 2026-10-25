@@ -37,11 +37,12 @@ pub async fn run(a: HubArgs) -> Result<()> {
     let hub = Hub { stations: Stations::default(), rooms: Rooms::default(), token: a.token.into() };
 
     let clock = hub.rooms.clone();
+    let stations = hub.stations.clone();
     tokio::spawn(async move {
         let mut tick = tokio::time::interval(Duration::from_secs(1));
         for n in 0u64.. {
             tick.tick().await;
-            clock.tick();
+            clock.tick(&stations);
             if n % 30 == 0 {
                 clock.sweep();
             }
@@ -51,6 +52,7 @@ pub async fn run(a: HubArgs) -> Result<()> {
     let app = Router::new()
         .route("/api/health", get(|| async { "ok" }))
         .route("/api/uplink", get(stations::uplink))
+        .route("/api/stations", get(proxy::open))
         .route("/api/s/{station}/library", get(proxy::library))
         .route("/api/s/{station}/audio/{track}", get(proxy::audio))
         .route("/api/s/{station}/cover/{cover}", get(proxy::cover))

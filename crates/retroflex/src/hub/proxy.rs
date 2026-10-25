@@ -11,8 +11,6 @@ use super::stations::Link;
 use crate::proto::Op;
 use crate::util::{key_hash, same};
 
-const LIBRARY_LIMIT: usize = 64 * 1024 * 1024;
-
 #[derive(Deserialize)]
 pub struct Pass {
     k: Option<String>,
@@ -22,19 +20,25 @@ pub struct Pass {
 
 // 合鍵か　部屋の札かを　改める
 fn authorize(hub: &Hub, station: &str, k: Option<&str>) -> Result<Arc<Link>, StatusCode> {
-    let k = k.ok_or(StatusCode::UNAUTHORIZED)?;
-    let room_ok = match k.split_once('.') {
-        Some((room, ticket)) => hub.rooms.admits(room, ticket, station),
-        None => false,
-    };
+    let k = k.unwrap_or("");
     let link = hub.stations.get(station);
-    if room_ok {
-        return link.ok_or(StatusCode::SERVICE_UNAVAILABLE);
+    if let Some((room, ticket)) = k.split_once('.') {
+        if hub.rooms.admits(room, ticket, station) {
+            return link.ok_or(StatusCode::SERVICE_UNAVAILABLE);
+        }
+        return Err(StatusCode::FORBIDDEN);
     }
     match link {
-        Some(l) if !k.contains('.') && same(&key_hash(k), &l.key) => Ok(l),
+        Some(l) if l.open && k.is_empty() => Ok(l),
+        Some(l) if !k.is_empty() && same(&key_hash(k), &l.key) => Ok(l),
+        _ if k.is_empty() => Err(StatusCode::UNAUTHORIZED),
         _ => Err(StatusCode::FORBIDDEN),
     }
+}
+
+// 戸を開けて　誰でも寄れる　駅の名を
+pub async fn open(State(hub): State<Hub>) -> Response {
+    ([(header::CACHE_CONTROL, "no-store")], axum::Json(hub.stations.open())).into_response()
 }
 
 // 目録は　一度借りれば　手元に置く
@@ -43,25 +47,10 @@ pub async fn library(State(hub): State<Hub>, Path(station): Path<String>, Query(
         Ok(l) => l,
         Err(code) => return code.into_response(),
     };
-    let cached = link.library.lock().unwrap().clone();
-    let bytes = match cached {
-        Some(b) => b,
-        None => {
-            let (head, body) = match link.request(Op::Library, None).await {
-                Ok(r) => r,
-                Err(code) => return code.into_response(),
-            };
-            if head.status != 200 {
-                return StatusCode::BAD_GATEWAY.into_response();
-            }
-            let Some(b) = body.collect(LIBRARY_LIMIT).await else {
-                return StatusCode::BAD_GATEWAY.into_response();
-            };
-            *link.library.lock().unwrap() = Some(b.clone());
-            b
-        }
-    };
-    ([(header::CONTENT_TYPE, "application/json"), (header::CACHE_CONTROL, "no-store")], bytes).into_response()
+    match link.catalog().await {
+        Ok(bytes) => ([(header::CONTENT_TYPE, "application/json"), (header::CACHE_CONTROL, "no-store")], bytes).into_response(),
+        Err(code) => code.into_response(),
+    }
 }
 
 // 駅からの　水をそのまま　管に注ぐ
