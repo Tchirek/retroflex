@@ -43,14 +43,38 @@
       "icons/icon.ico"
     ],
     "linux": {
-      "appimage": { "bundleMediaFramework": true },
-      "deb": { "depends": ["gstreamer1.0-plugins-good", "gstreamer1.0-libav"] }
+      "appimage": {
+        "bundleMediaFramework": true
+      },
+      "deb": {
+        "depends": [
+          "gstreamer1.0-plugins-good",
+          "gstreamer1.0-libav"
+        ]
+      }
     },
     "android": {
       "minSdkVersion": 26
     },
     "iOS": {
       "minimumSystemVersion": "15.0"
+    }
+  },
+  "plugins": {
+    "deep-link": {
+      "desktop": {
+        "schemes": [
+          "retroflex"
+        ]
+      },
+      "mobile": [
+        {
+          "scheme": [
+            "retroflex"
+          ],
+          "appLink": false
+        }
+      ]
     }
   }
 }
