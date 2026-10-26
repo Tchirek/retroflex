@@ -186,6 +186,13 @@ export class Room {
         this.status = "full";
         this.stopped = true;
         break;
+      // 同じ名の　古き席はもう　要らざるか
+      case "duplicate":
+        this.status = "full";
+        this.stopped = true;
+        this.ws?.close();
+        this.ws = null;
+        break;
     }
   }
 

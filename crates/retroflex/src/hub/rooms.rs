@@ -460,6 +460,10 @@ impl Inner {
         let Some(client) = client.filter(|c| (8..=64).contains(&c.len())) else { return Vec::new() };
         let stale: Vec<u32> = self.members.iter().filter(|(_, m)| m.client.as_deref() == Some(client)).map(|(id, _)| *id).collect();
         for id in &stale {
+            if let Some(member) = self.members.get(id) {
+                let _ = member.tx.try_send(msg(&json!({ "t": "duplicate" })));
+                let _ = member.tx.try_send(Message::Close(None));
+            }
             self.members.remove(id);
         }
         stale
