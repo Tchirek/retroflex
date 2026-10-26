@@ -8,6 +8,7 @@ use serde::Deserialize;
 
 use super::Hub;
 use super::stations::Link;
+use super::translate;
 use crate::proto::Op;
 use crate::util::{key_hash, same};
 
@@ -104,9 +105,42 @@ pub async fn cover(State(hub): State<Hub>, Path((station, cover)): Path<(String,
     }
 }
 
-pub async fn lyrics(State(hub): State<Hub>, Path((station, track)): Path<(String, String)>, Query(p): Query<Pass>) -> Response {
+pub async fn lyrics(
+    State(hub): State<Hub>,
+    Path((station, track)): Path<(String, String)>,
+    Query(p): Query<Pass>,
+    headers: HeaderMap,
+) -> Response {
     match authorize(&hub, &station, p.k.as_deref()) {
-        Ok(link) => relay(link, Op::Lyrics { track }, None, "private, max-age=3600").await,
+        Ok(link) => {
+            if p.v.unwrap_or(0) >= 2 {
+                return relay(link, Op::Lyrics { track }, None, "private, max-age=3600").await;
+            }
+            let lang = headers
+                .get(header::ACCEPT_LANGUAGE)
+                .and_then(|v| v.to_str().ok())
+                .and_then(|s| s.split(',').next())
+                .and_then(|s| s.split(';').next())
+                .map(str::trim)
+                .filter(|s| (2..=10).contains(&s.len()) && s.bytes().all(|b| b.is_ascii_alphabetic() || b == b'-'))
+                .map(str::to_string);
+            let Some(lang) = lang else {
+                return relay(link, Op::Lyrics { track }, None, "private, max-age=3600").await;
+            };
+            let (head, body) = match link.request(Op::Lyrics { track: track.clone() }, None).await {
+                Ok(r) => r,
+                Err(code) => return code.into_response(),
+            };
+            if head.status != 200 {
+                return StatusCode::NOT_FOUND.into_response();
+            }
+            let Some(bytes) = body.collect(translate::LYRICS_LIMIT).await else {
+                return StatusCode::BAD_GATEWAY.into_response();
+            };
+            let source = String::from_utf8_lossy(&bytes).into_owned();
+            let text = translate::bilingual(&hub, &station, &track, &lang, &source).await.unwrap_or(source);
+            ([(header::CONTENT_TYPE, "text/plain; charset=utf-8"), (header::CACHE_CONTROL, "private, max-age=3600")], text).into_response()
+        }
         Err(code) => code.into_response(),
     }
 }

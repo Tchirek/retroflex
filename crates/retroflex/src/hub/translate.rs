@@ -13,7 +13,7 @@ use super::proxy::{Pass, authorize};
 use crate::proto::Op;
 
 const API: &str = "https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&dt=t&dj=1";
-const LYRICS_LIMIT: usize = 512 * 1024;
+pub const LYRICS_LIMIT: usize = 512 * 1024;
 const MAX_LINES: usize = 400;
 const BATCH: usize = 3000;
 const KEEP: usize = 4096;
@@ -153,6 +153,73 @@ impl Translator {
         }
         Ok(json!({ "from": from, "lines": map }))
     }
+}
+
+
+// 札を剥ぎ　歌の文だけ　取り出す
+fn parts(raw: &str) -> (String, String) {
+    let mut rest = raw.trim();
+    let mut stamps = String::new();
+    while let Some((tag, tail)) = rest.strip_prefix('[').and_then(|r| r.split_once(']')) {
+        if !tag.starts_with(|c: char| c.is_ascii_digit()) {
+            break;
+        }
+        stamps.push('[');
+        stamps.push_str(tag);
+        stamps.push(']');
+        rest = tail;
+    }
+    let mut text = String::new();
+    let mut skip = false;
+    for c in rest.chars() {
+        match c {
+            '<' => skip = true,
+            '>' if skip => skip = false,
+            _ if !skip => text.push(c),
+            _ => {}
+        }
+    }
+    (stamps, text.trim().to_string())
+}
+
+// 同じ刻に　母の言葉を　重ね置く
+pub async fn bilingual(hub: &Hub, station: &str, track: &str, to: &str, source: &str) -> Result<String> {
+    let found = maps(hub, station, track, to, source).await?;
+    let map = found["lines"].as_object();
+    let mut out = String::with_capacity(source.len() * 2);
+    for raw in source.lines() {
+        out.push_str(raw);
+        out.push('\n');
+        let (stamps, text) = parts(raw);
+        if text.is_empty() {
+            continue;
+        }
+        let Some(said) = map.and_then(|m| m.get(&text)).and_then(Value::as_str) else { continue };
+        if said.is_empty() || said == text {
+            continue;
+        }
+        if !stamps.is_empty() {
+            out.push_str(&stamps);
+        }
+        out.push_str(said);
+        out.push('\n');
+    }
+    Ok(out)
+}
+
+// 訳の棚　同じ歌なら　取り出だす
+pub async fn maps(hub: &Hub, station: &str, track: &str, to: &str, source: &str) -> Result<Arc<Value>> {
+    let key = format!("{station}\n{track}\n{to}");
+    if let Some(v) = hub.translator.cached(&key) {
+        return Ok(v);
+    }
+    let lines = verses(source);
+    let tr = hub.translator.clone();
+    let lang = to.to_string();
+    let value = tokio::task::spawn_blocking(move || tr.render(&lines, &lang)).await??;
+    let value = Arc::new(value);
+    hub.translator.keep(key, value.clone());
+    Ok(value)
 }
 
 // 異国の歌　隣の行に　母の声
