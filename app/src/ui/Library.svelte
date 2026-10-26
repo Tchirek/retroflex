@@ -12,6 +12,7 @@
   import { press } from "../lib/press";
   import { dropPlaylists, playlists } from "../lib/playlists.svelte";
   import type { Mode } from "../lib/room.svelte";
+  import { scrub } from "../lib/scrub";
   import { sendLink } from "../lib/share";
   import AddToggle from "./AddToggle.svelte";
   import Art from "./Art.svelte";
@@ -64,6 +65,7 @@
   let list = $state<Sheet | null>(null);
   let mode = $state<Shelf>("albums");
   let shared = $state(false);
+  let segScrub = $state(false);
   const shelf = $derived(albums(tracks));
   const found = $derived(search(tracks, query));
   const byId = $derived(new Map(tracks.map((t) => [t.id, t])));
@@ -234,11 +236,27 @@
       {#if query}<button class="clear" aria-label="Clear" onclick={() => (query = "")}><Icon name="close" size={13} /></button>{/if}
     </label>
     {@render lounge?.()}
-    <div class="seg" style:--i={SHELVES.indexOf(mode)}>
+    <div
+      class="seg"
+      class:scrubbing={segScrub}
+      style:--i={SHELVES.indexOf(mode)}
+      use:scrub={{
+        onstart: () => (segScrub = true),
+        onend: () => (segScrub = false),
+        onpick: (el) => {
+          const next = el.dataset.mode as Shelf | undefined;
+          if (next && next !== mode) shelve(next);
+        },
+      }}
+    >
       <span class="knob"></span>
-      <button class:on={mode === "albums"} aria-label="Albums" onclick={() => shelve("albums")}><Icon name="library" size={18} /></button>
-      <button class:on={mode === "songs"} aria-label="Songs" onclick={() => shelve("songs")}><Icon name="songs" size={18} /></button>
-      {#if isApp}<button class:on={mode === "lists"} aria-label="Saved lists" onclick={() => shelve("lists")}><Icon name="lists" size={18} /></button>{/if}
+      <button class:on={mode === "albums"} aria-label="Albums" data-choice data-mode="albums" onclick={() => shelve("albums")}>
+        <Icon name="library" size={18} />
+      </button>
+      <button class:on={mode === "songs"} aria-label="Songs" data-choice data-mode="songs" onclick={() => shelve("songs")}>
+        <Icon name="songs" size={18} />
+      </button>
+      {#if isApp}<button class:on={mode === "lists"} aria-label="Saved lists" data-choice data-mode="lists" onclick={() => shelve("lists")}><Icon name="lists" size={18} /></button>{/if}
     </div>
   </div>
 
@@ -431,6 +449,19 @@
     padding: 2px;
     border-radius: 999px;
     background: rgba(255, 255, 255, 0.06);
+    touch-action: none;
+  }
+  .seg.scrubbing .knob {
+    transform: translateX(calc(var(--i) * 36px)) scale(1.12);
+    box-shadow: 0 0 18px rgba(255, 255, 255, 0.16);
+  }
+  .seg.scrubbing button {
+    color: var(--fg-2);
+    transform: scale(0.94);
+  }
+  .seg.scrubbing button.on {
+    color: var(--fg);
+    transform: scale(1.06);
   }
   .knob {
     position: absolute;

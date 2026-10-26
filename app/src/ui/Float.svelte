@@ -8,7 +8,9 @@
     cover,
     at,
     rest = false,
-  }: { station: Station | null; cover?: string; at: string; rest?: boolean } = $props();
+    slotName = "big",
+    follow = false,
+  }: { station: Station | null; cover?: string; at: string; rest?: boolean; slotName?: string; follow?: boolean } = $props();
 
   type Box = { x: number; y: number; w: number; h: number; r: number };
   const DUR = 520;
@@ -18,6 +20,7 @@
   let box: Box | null = null;
   let flight: { from: Box; t0: number } | null = null;
   let radii = new WeakMap<Element, number>();
+  let target: HTMLElement | null = null;
 
   // 曲線の　緩みを解きて　時に問う
   function bezier(x1: number, y1: number, x2: number, y2: number) {
@@ -35,8 +38,11 @@
   }
   const ease = bezier(0.2, 0.8, 0.2, 1);
 
-  function slot(): HTMLElement | null {
-    return document.querySelector<HTMLElement>(".phone [data-slot]");
+  // 今の座を　指の行先に　結びつけ
+  function slotEl(): HTMLElement | null {
+    if (target?.isConnected && target.dataset.slot === slotName) return target;
+    target = document.querySelector<HTMLElement>(`.phone [data-slot="${slotName}"]`);
+    return target;
   }
 
   function read(s: HTMLElement): Box {
@@ -51,10 +57,9 @@
   // 行く先の　今の姿を　毎拍追う
   function frame(now: number) {
     if (!el) return;
-    const s = slot();
+    const s = slotEl();
     if (!s) return;
-    const kindNow = s.dataset.slot ?? "big";
-    if (kindNow !== kind) kind = kindNow;
+    if (slotName !== kind) kind = slotName;
     const to = read(s);
     let next = to;
     if (flight) {
@@ -84,13 +89,20 @@
   function loop(now: number) {
     raf = 0;
     frame(now);
-    if (!document.hidden && (flight || now < until)) raf = requestAnimationFrame(loop);
+    if (!document.hidden && (flight || follow || now < until)) raf = requestAnimationFrame(loop);
   }
 
   $effect(() => {
     void at;
+    void slotName;
+    target = null;
     if (box) flight = { from: box, t0: performance.now() };
     wake();
+  });
+
+  // 頁を繰る間は　影もまた　足を止めず
+  $effect(() => {
+    if (follow) wake(1200);
   });
 
   onMount(() => {

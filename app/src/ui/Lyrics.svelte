@@ -72,15 +72,24 @@
     hold();
   }
 
+  let touchX = 0;
   let touchY = 0;
   function touchstart(e: TouchEvent) {
+    touchX = e.touches[0].clientX;
     touchY = e.touches[0].clientY;
   }
   function touchmove(e: TouchEvent) {
     if (!lyrics?.synced) return;
+    const x = e.touches[0].clientX;
     const y = e.touches[0].clientY;
-    manual = (manual ?? shift) + (y - touchY);
+    const across = Math.abs(x - touchX);
+    const down = Math.abs(y - touchY);
+    const step = y - touchY;
+    touchX = x;
     touchY = y;
+    // 横に振る　指は頁へ　譲りけり
+    if (across > down) return;
+    manual = (manual ?? shift) + step;
     hold();
   }
 

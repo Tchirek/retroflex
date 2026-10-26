@@ -18,6 +18,7 @@
   import { remember, taste } from "./lib/taste";
   import { Player } from "./lib/player.svelte";
   import { Room, type Mode } from "./lib/room.svelte";
+  import { scrub } from "./lib/scrub";
   import Backdrop from "./ui/Backdrop.svelte";
   import Chat from "./ui/Chat.svelte";
   import Cover from "./ui/Cover.svelte";
@@ -371,6 +372,7 @@
 
   // 頁の順　左へ右へと　指が繰る
   type View = "now" | Panel;
+  type LeafView = "now" | "lyrics";
   const ORDER: View[] = ["now", "lyrics", "chat", "queue", "library"];
   let slide = $state(0);
 
@@ -380,12 +382,256 @@
     return true;
   }
 
+  // 盤と詞　指の行先を　直に負う
+  let leavesEl: HTMLDivElement | null = null;
+  let railsEl: HTMLDivElement | null = null;
+  let pagerW = 0;
+  let pagerP = 0;
+  let pagerRaf = 0;
+  let pagerFollow = $state(false);
+  let dragRaf = 0;
+  let dragP = 0;
+  let suppress = 0;
+  type Drag = {
+    id: number;
+    x0: number;
+    y0: number;
+    lastX: number;
+    lastT: number;
+    vx: number;
+    base: number;
+    axis: "x" | "y" | null;
+    dx: number;
+  };
+  let drag: Drag | null = null;
+
+  function paintPager(p: number) {
+    pagerP = p;
+    if (!railsEl || !pagerW) return;
+    railsEl.style.transform = `translate3d(${-p * pagerW}px, 0, 0)`;
+    railsEl.style.setProperty("--p", p.toFixed(4));
+    leavesEl?.style.setProperty("--p", p.toFixed(4));
+    leavesEl?.style.setProperty("--edge", (p * (1 - p) * 4).toFixed(3));
+  }
+
+  // 詞の頁　四三の動きを　そのままに
+  let leafArrive = $state(false);
+  let leafFrom = $state(32);
+  let arriveTimer = 0;
+  function flashLeaf(dir: number) {
+    clearTimeout(arriveTimer);
+    leafFrom = dir * 32;
+    leafArrive = true;
+    arriveTimer = window.setTimeout(() => (leafArrive = false), 300);
+  }
+
+  // 頁を渡る　緩き曲線を　手に馴染む
+  function glide(to: number) {
+    cancelAnimationFrame(pagerRaf);
+    const from = pagerP;
+    const t0 = performance.now();
+    const span = 470;
+    pagerFollow = true;
+    const tick = (now: number) => {
+      const k = Math.min(1, Math.max(0, (now - t0) / span));
+      const e = k < 0.5 ? 4 * k * k * k : 1 - Math.pow(-2 * k + 2, 3) / 2;
+      paintPager(from + (to - from) * e);
+      if (k < 1) {
+        pagerRaf = requestAnimationFrame(tick);
+        return;
+      }
+      pagerRaf = 0;
+      pagerFollow = false;
+    };
+    pagerRaf = requestAnimationFrame(tick);
+  }
+
+  // 大盤を　押せば詞へと　頁返る
+  function coverTap() {
+    turn("lyrics");
+  }
+
   function turn(next: View) {
     if (next === view || !usable(next)) return;
+    if (!wide && (view === "now" || view === "lyrics") && (next === "now" || next === "lyrics")) {
+      cancelAnimationFrame(pagerRaf);
+      pagerRaf = 0;
+      pagerFollow = false;
+      slide = next === "lyrics" ? 1 : -1;
+      haptic();
+      if (next === "lyrics") flashLeaf(slide);
+      view = next;
+      const base = next === "lyrics" ? 1 : 0;
+      pagerP = base;
+      paintPager(base);
+      return;
+    }
+    cancelAnimationFrame(pagerRaf);
+    pagerRaf = 0;
+    pagerFollow = false;
     slide = Math.sign(ORDER.indexOf(next) - ORDER.indexOf(view));
     haptic();
+    if (!wide && next === "lyrics") flashLeaf(slide);
     view = next;
   }
+
+  // 盤と詞を　同じ指先に　預けけり
+  function deck(node: HTMLDivElement) {
+    leavesEl = node;
+    railsEl = node.querySelector<HTMLDivElement>(".rails");
+    const measure = () => {
+      const w = node.clientWidth;
+      if (!w) return;
+      pagerW = w;
+      if (drag?.axis === "x" || pagerRaf) paintPager(pagerP);
+      else {
+        pagerP = view === "lyrics" ? 1 : 0;
+        paintPager(pagerP);
+      }
+    };
+    measure();
+    requestAnimationFrame(measure);
+    const ro = new ResizeObserver(measure);
+    ro.observe(node);
+    node.addEventListener("click", pagerClick, true);
+    return {
+      destroy() {
+        ro.disconnect();
+        node.removeEventListener("click", pagerClick, true);
+        cancelAnimationFrame(pagerRaf);
+        pagerRaf = 0;
+        pagerFollow = false;
+        leavesEl = null;
+        railsEl = null;
+      },
+    };
+  }
+
+  // 触れ始め　縦か横かと　息を計る
+  function pagerDown(e: PointerEvent) {
+    if (e.pointerType === "mouse" && e.button !== 0) return;
+    const el = e.target as HTMLElement;
+    if (el.closest("input, textarea, .progress, .bar, .thumb, .icon-btn")) return;
+    if (pagerRaf) {
+      cancelAnimationFrame(pagerRaf);
+      pagerRaf = 0;
+    }
+    pagerFollow = false;
+    drag = {
+      id: e.pointerId,
+      x0: e.clientX,
+      y0: e.clientY,
+      lastX: e.clientX,
+      lastT: performance.now(),
+      vx: 0,
+      base: pagerP,
+      axis: null,
+      dx: 0,
+    };
+  }
+
+  function pagerMove(e: PointerEvent) {
+    const d = drag;
+    if (!d || e.pointerId !== d.id) return;
+    const now = performance.now();
+    if (now > d.lastT) {
+      d.vx = (e.clientX - d.lastX) / (now - d.lastT);
+      d.lastX = e.clientX;
+      d.lastT = now;
+    }
+    const dx = e.clientX - d.x0;
+    const dy = e.clientY - d.y0;
+    if (!d.axis) {
+      if (Math.hypot(dx, dy) < 8) return;
+      if (Math.abs(dx) > Math.abs(dy) * 1.15 && pagerW > 0) {
+        d.axis = "x";
+        pagerFollow = true;
+        try {
+          (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+        } catch {}
+      } else {
+        d.axis = "y";
+        return;
+      }
+    }
+    if (d.axis !== "x") return;
+    if (e.cancelable) e.preventDefault();
+    d.dx = dx;
+    let p = d.base - dx / pagerW;
+    // 端にては　糸を緩めて　戻り待つ
+    if (p < 0) p *= 0.22;
+    else if (p > 1) p = 1 + (p - 1) * 0.22;
+    dragP = p;
+    if (!dragRaf) {
+      dragRaf = requestAnimationFrame(() => {
+        dragRaf = 0;
+        paintPager(dragP);
+      });
+    }
+  }
+
+  function pagerUp(e: PointerEvent) {
+    const d = drag;
+    if (!d || e.pointerId !== d.id) return;
+    drag = null;
+    if (dragRaf) {
+      cancelAnimationFrame(dragRaf);
+      dragRaf = 0;
+    }
+    if (d.axis !== "x") {
+      settlePager();
+      return;
+    }
+    paintPager(dragP);
+    suppress = performance.now() + 420;
+    // 詞の先　さらに左へと　繰れば次の頁
+    if (view === "lyrics" && d.dx < -64) {
+      pagerFollow = false;
+      turn("chat");
+      return;
+    }
+    const p = pagerP;
+    const to: LeafView =
+      view === "now" ? (p > 0.34 || d.vx < -0.5 ? "lyrics" : "now") : p < 0.66 || d.vx > 0.5 ? "now" : "lyrics";
+    if (to !== view) {
+      slide = to === "lyrics" ? 1 : -1;
+      haptic();
+      view = to;
+    }
+    glide(to === "lyrics" ? 1 : 0);
+  }
+
+  function pagerCancel(e: PointerEvent) {
+    const d = drag;
+    if (!d || e.pointerId !== d.id) return;
+    drag = null;
+    if (dragRaf) {
+      cancelAnimationFrame(dragRaf);
+      dragRaf = 0;
+    }
+    settlePager();
+  }
+
+  // 途切れても　頁は元の　座に戻る
+  function settlePager() {
+    const base = view === "lyrics" ? 1 : 0;
+    if (Math.abs(pagerP - base) > 0.002) glide(base);
+  }
+
+  // 頁の影　指の後にて　舞い戻る
+  function pagerClick(e: MouseEvent) {
+    if (performance.now() >= suppress) return;
+    e.preventDefault();
+    e.stopPropagation();
+  }
+
+  $effect(() => {
+    if (view === "now" || view === "lyrics") return;
+    cancelAnimationFrame(pagerRaf);
+    pagerRaf = 0;
+    drag = null;
+    pagerFollow = false;
+  });
 
   anchor(() => hash(target) || location.pathname);
 
@@ -402,10 +648,25 @@
     } else turn(view === p ? "now" : p);
   }
 
+  // 四つの座　長押し滑りて　選び取る
+  let tabScrub = $state(false);
+  function chooseTab(p: Panel) {
+    if (!usable(p)) return;
+    if (wide) {
+      panel = p;
+      return;
+    }
+    if (view !== p) turn(p);
+  }
+
   let touch: { x: number; y: number; t: number } | null = null;
   function swipeStart(e: TouchEvent) {
+    if (view === "now" || view === "lyrics") {
+      touch = null;
+      return;
+    }
     const el = e.target as HTMLElement;
-    touch = el.closest("input, textarea, .progress, .bar, .seg") ? null : { x: e.touches[0].clientX, y: e.touches[0].clientY, t: performance.now() };
+    touch = el.closest("input, textarea, .progress, .bar, .seg, .tabs") ? null : { x: e.touches[0].clientX, y: e.touches[0].clientY, t: performance.now() };
   }
   function swipeEnd(e: TouchEvent) {
     if (!touch) return;
@@ -439,7 +700,7 @@
   });
 </script>
 
-<Backdrop src={station?.cover(current?.cover)} />
+<Backdrop src={station?.cover(current?.cover)} poster={current?.cover ? blurs[current.cover] : undefined} />
 {#if mac}<div class="drag" data-tauri-drag-region></div>{/if}
 
 {#if target.kind === "none"}
@@ -467,42 +728,63 @@
   </main>
 {:else}
   <main class="phone" class:full={view === "now"} ontouchstart={swipeStart} ontouchend={swipeEnd}>
-    {#if view === "now"}
-      <div class="art"><div class="slot" data-slot="big"></div></div>
-      <div class="row">
-        <div class="meta">
-          <div class="title ellipsis">{current?.title ?? ""}</div>
-          <div class="artist ellipsis">{current?.artist ?? ""}</div>
+    {#if view === "now" || view === "lyrics"}
+      <div
+        class="leaves"
+        role="group"
+        aria-label="Now playing and lyrics"
+        use:deck
+        onpointerdown={pagerDown}
+        onpointermove={pagerMove}
+        onpointerup={pagerUp}
+        onpointercancel={pagerCancel}
+      >
+        <div class="rails">
+          <section class="leaf now" aria-hidden={view !== "now"} inert={view !== "now"}>
+            <div class="art">
+              <button class="slot" data-slot="big" aria-label="Lyrics" onclick={coverTap}></button>
+            </div>
+            <div class="row">
+              <div class="meta">
+                <div class="title ellipsis">{current?.title ?? ""}</div>
+                <div class="artist ellipsis">{current?.artist ?? ""}</div>
+              </div>
+              {#if room}<Members {room} {link} />{/if}
+            </div>
+          </section>
+          <section class="leaf lyrics" class:arrive={leafArrive} style:--from="{leafFrom}px" aria-hidden={view !== "lyrics"} inert={view !== "lyrics"}>
+            <header class="mini">
+              <button class="thumb" data-slot="thumb" aria-label="Now playing" onclick={() => turn("now")}></button>
+              <div class="meta">
+                <div class="title ellipsis">{current?.title ?? ""}</div>
+                <div class="artist ellipsis">{current?.artist ?? ""}</div>
+              </div>
+              {#if room}<Members {room} {link} />{/if}
+            </header>
+            <section class="pane">{@render pane("lyrics")}</section>
+          </section>
         </div>
-        {#if room}<Members {room} {link} />{/if}
+        <span class="seam" aria-hidden="true"></span>
       </div>
-    {:else if view === "lyrics"}
-      <header class="mini">
-        <button class="thumb" data-slot="thumb" aria-label="Now playing" onclick={() => turn("now")}></button>
-        <div class="meta">
-          <div class="title ellipsis">{current?.title ?? ""}</div>
-          <div class="artist ellipsis">{current?.artist ?? ""}</div>
-        </div>
-        {#if room}<Members {room} {link} />{/if}
-      </header>
-      <section class="pane" in:fly={{ x: slide * 32, duration: 260, opacity: 0 }}>
-        {@render pane(view)}
-      </section>
+      {#if room}<div class="whispers"><Whisper {room} max={2} /></div>{/if}
+      <Progress time={pos} duration={current?.duration ?? 0} onseek={(t) => room?.seek(t)} locked={open} />
+      <Transport {...transport} small={view !== "now"} />
     {:else}
       {#if view === "chat"}{@render dock()}{/if}
       <section class="pane tall" class:talk={view === "chat"} in:fly={{ x: slide * 32, duration: 260, opacity: 0 }}>
         {@render pane(view)}
       </section>
-    {/if}
-    {#if view === "now" || view === "lyrics"}
-      {#if room}<div class="whispers"><Whisper {room} max={2} /></div>{/if}
-      <Progress time={pos} duration={current?.duration ?? 0} onseek={(t) => room?.seek(t)} locked={open} />
-      <Transport {...transport} small={view !== "now"} />
-    {:else if view !== "chat"}
-      {@render dock()}
+      {#if view !== "chat"}{@render dock()}{/if}
     {/if}
     {@render tabs()}
-    <Float {station} cover={current?.cover} at={view} rest={!(room?.playing ?? false)} />
+    <Float
+      {station}
+      cover={current?.cover}
+      at={view}
+      rest={!(room?.playing ?? false)}
+      slotName={view === "now" ? "big" : view === "lyrics" ? "thumb" : "dock"}
+      follow={pagerFollow}
+    />
   </main>
 {/if}
 
@@ -566,17 +848,40 @@
 {/snippet}
 
 {#snippet tabs()}
-  <nav class="tabs">
-    <button class="icon-btn" class:on={shown === "lyrics" && (wide || view === "lyrics")} aria-label="Lyrics" onclick={() => tab("lyrics")}>
+  <nav
+    class="tabs"
+    class:scrubbing={tabScrub}
+    use:scrub={{
+      onstart: () => (tabScrub = true),
+      onend: () => (tabScrub = false),
+      onpick: (el) => chooseTab(el.dataset.view as Panel),
+    }}
+  >
+    <button
+      class="icon-btn"
+      class:on={shown === "lyrics" && (wide || view === "lyrics")}
+      aria-label="Lyrics"
+      data-choice
+      data-view="lyrics"
+      onclick={() => tab("lyrics")}
+    >
       <Icon name="lyrics" size={20} />
     </button>
-    <button class="icon-btn" class:on={shown === "chat"} aria-label="Chat" onclick={() => tab("chat")} disabled={!room}>
+    <button class="icon-btn" class:on={shown === "chat"} aria-label="Chat" data-choice data-view="chat" onclick={() => tab("chat")} disabled={!room}>
       <Icon name="chat" size={20} />
     </button>
-    <button class="icon-btn" class:on={shown === "queue"} aria-label="Queue" onclick={() => tab("queue")} disabled={!room}>
+    <button class="icon-btn" class:on={shown === "queue"} aria-label="Queue" data-choice data-view="queue" onclick={() => tab("queue")} disabled={!room}>
       <Icon name="queue" size={20} />
     </button>
-    <button class="icon-btn" class:on={shown === "library"} aria-label="Library" onclick={() => tab("library")} disabled={!station}>
+    <button
+      class="icon-btn"
+      class:on={shown === "library"}
+      aria-label="Library"
+      data-choice
+      data-view="library"
+      onclick={() => tab("library")}
+      disabled={!station}
+    >
       <Icon name="library" size={20} />
     </button>
   </nav>
@@ -679,6 +984,7 @@
     right: clamp(18px, 3vw, 40px);
     display: flex;
     gap: 6px;
+    touch-action: none;
   }
   .wide.mac .tabs {
     top: 12px;
@@ -686,6 +992,23 @@
   .tabs button:disabled {
     opacity: 0.3;
     pointer-events: none;
+  }
+  /* 長押しの　四つの座は　息を弾む */
+  .tabs.scrubbing {
+    touch-action: none;
+  }
+  .tabs.scrubbing .icon-btn {
+    opacity: 0.5;
+    transform: scale(0.9);
+    transition:
+      transform 0.18s var(--spring),
+      opacity 0.18s var(--ease),
+      background 0.18s var(--ease);
+  }
+  .tabs.scrubbing .icon-btn.on {
+    opacity: 1;
+    transform: scale(1.16);
+    background: var(--glass-2);
   }
   /* 耳打ちの　席を空けおき　揺らぎなし */
   .whispers {
@@ -717,6 +1040,74 @@
     width: min(100%, 52vh);
     aspect-ratio: 1;
     border-radius: clamp(10px, 1.2vw, 16px);
+    padding: 0;
+    overflow: hidden;
+    cursor: pointer;
+    transform-origin: 50% 50%;
+    transition: transform 0.3s var(--spring);
+  }
+  .slot:active {
+    transform: scale(0.975);
+  }
+  /* 二枚の頁　指の重さで　ずれ違う */
+  .leaves {
+    position: relative;
+    flex: 1;
+    min-height: 0;
+    overflow: hidden;
+    touch-action: pan-y;
+  }
+  .rails {
+    display: flex;
+    height: 100%;
+    will-change: transform;
+  }
+  .leaf {
+    flex: 0 0 100%;
+    min-width: 0;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+  }
+  .leaf.now .art {
+    transform: translate3d(calc(var(--p, 0) * -9%), 0, 0) scale(calc(1 - var(--p, 0) * 0.06));
+    transform-origin: 50% 50%;
+  }
+  .leaf.now .row {
+    transform: translate3d(calc(var(--p, 0) * -22%), 0, 0);
+    opacity: clamp(0, calc(1 - var(--p, 0) * 2.2), 1);
+  }
+  .leaf.lyrics .mini {
+    transform: translate3d(calc((1 - var(--p, 0)) * 20%), 0, 0);
+    opacity: clamp(0, calc((var(--p, 0) - 0.22) * 2), 1);
+  }
+  .leaf.lyrics .pane {
+    transform: translate3d(calc((1 - var(--p, 0)) * 7%), 0, 0);
+    opacity: clamp(0, calc((var(--p, 0) - 0.12) * 1.6), 1);
+  }
+  /* 四三の頁　右より静かに　滑り入る */
+  .leaf.lyrics.arrive .pane {
+    animation: leafArrive 0.26s var(--ease);
+  }
+  @keyframes leafArrive {
+    from {
+      transform: translate3d(var(--from, 32px), 0, 0);
+      opacity: 0;
+    }
+  }
+  /* 境目に　灯をともしつつ　頁めくる */
+  .seam {
+    position: absolute;
+    top: 9%;
+    bottom: 9%;
+    left: calc((1 - var(--p, 0)) * 100%);
+    width: 1px;
+    opacity: var(--edge, 0);
+    background: linear-gradient(180deg, transparent, rgba(255, 255, 255, 0.5), transparent);
+    box-shadow: 0 0 28px rgba(255, 255, 255, 0.35);
+    pointer-events: none;
+    z-index: 4;
   }
   .row {
     display: flex;
