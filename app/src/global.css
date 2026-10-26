@@ -40,6 +40,7 @@ body {
   -moz-osx-font-smoothing: grayscale;
   text-rendering: optimizeLegibility;
   overscroll-behavior: none;
+  touch-action: pan-y;
   user-select: none;
   -webkit-user-select: none;
 }

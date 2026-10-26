@@ -122,11 +122,24 @@
     } else offerApp(first);
     addEventListener("hashchange", onhash);
     addEventListener("keydown", keys);
+    // 二つの指　窓を広げぬと　制しけり
+    const noPinch = (e: TouchEvent) => {
+      if (e.touches.length > 1) e.preventDefault();
+    };
+    const noGesture = (e: Event) => e.preventDefault();
+    document.addEventListener("touchmove", noPinch, { passive: false });
+    document.addEventListener("gesturestart", noGesture);
+    document.addEventListener("gesturechange", noGesture);
+    document.addEventListener("gestureend", noGesture);
     return () => {
       vv?.removeEventListener("resize", fit);
       vv?.removeEventListener("scroll", fit);
       removeEventListener("hashchange", onhash);
       removeEventListener("keydown", keys);
+      document.removeEventListener("touchmove", noPinch);
+      document.removeEventListener("gesturestart", noGesture);
+      document.removeEventListener("gesturechange", noGesture);
+      document.removeEventListener("gestureend", noGesture);
     };
   });
 
