@@ -63,6 +63,7 @@
     color: #fff;
     background: rgba(20, 20, 24, 0.72);
     backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
   }
   .pill {
     width: 52px;

@@ -35,6 +35,7 @@
     background: rgba(28, 28, 34, 0.72);
     border: 1px solid rgba(255, 255, 255, 0.08);
     backdrop-filter: blur(30px) saturate(170%);
+    -webkit-backdrop-filter: blur(30px) saturate(170%);
     box-shadow: 0 16px 40px rgba(0, 0, 0, 0.45);
     pointer-events: auto;
   }

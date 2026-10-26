@@ -5,7 +5,7 @@
 
   const W = 64;
   const FADE = 1600;
-  const STEP = 50;
+  const STEP = 33;
   const BLOBS = [
     { size: 1.25, speed: 0.000045, orbit: 0.18, phase: 0.0, alpha: 1.0 },
     { size: 1.0, speed: -0.00006, orbit: 0.28, phase: 2.1, alpha: 0.85 },
@@ -138,7 +138,7 @@
   .grain {
     position: absolute;
     inset: 0;
-    opacity: 1;
+    opacity: 0.04;
     will-change: transform;
     background-image: url("/grain.png");
     background-repeat: repeat;

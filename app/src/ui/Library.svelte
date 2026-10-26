@@ -591,6 +591,7 @@
     color: #fff;
     background: rgba(20, 20, 24, 0.72);
     backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
     opacity: 0;
     transform: translateY(6px);
     transition:
