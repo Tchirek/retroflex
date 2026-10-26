@@ -840,21 +840,32 @@
     -webkit-backdrop-filter: blur(14px);
   }
   .ring {
+    position: relative;
     display: grid;
     place-items: center;
     width: 132px;
     height: 132px;
     border-radius: 50%;
     background: rgba(255, 255, 255, 0.12);
-    box-shadow: 0 0 0 0 rgba(255, 255, 255, 0.35);
-    animation: call 2s var(--ease) infinite;
   }
-  @keyframes call {
-    70% {
-      box-shadow: 0 0 0 28px rgba(255, 255, 255, 0);
+  /* 広がる輪　影を描かず　息継ぎに */
+  .ring::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: 50%;
+    border: 2px solid rgba(255, 255, 255, 0.35);
+    pointer-events: none;
+    animation: ripple 2s var(--ease) infinite;
+  }
+  @keyframes ripple {
+    from {
+      transform: scale(1);
+      opacity: 0.55;
     }
-    100% {
-      box-shadow: 0 0 0 0 rgba(255, 255, 255, 0);
+    to {
+      transform: scale(1.45);
+      opacity: 0;
     }
   }
 </style>
