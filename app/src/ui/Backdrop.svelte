@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from "svelte";
 
-  let { src }: { src?: string } = $props();
+  let { src, poster }: { src?: string; poster?: string } = $props();
 
   const W = 64;
   const FADE = 1600;
@@ -17,13 +17,13 @@
   let layers: { art: HTMLCanvasElement; born: number }[] = [];
   let wake = () => {};
 
-  // 絵を畳み　掌ほどの　色となる
+  // 絵を一枚　掌ほどに　畳みおく
   function shrink(img: HTMLImageElement): HTMLCanvasElement {
     const c = document.createElement("canvas");
-    c.width = c.height = W;
+    c.width = c.height = 96;
     const g = c.getContext("2d")!;
     g.imageSmoothingQuality = "high";
-    g.drawImage(img, 0, 0, W, W);
+    g.drawImage(img, 0, 0, 96, 96);
     return c;
   }
 
@@ -32,11 +32,17 @@
     const first = src;
     if (!first) return;
     const img = new Image();
+    img.crossOrigin = "anonymous";
     img.decoding = "async";
     img.onload = () => {
-      layers.push({ art: shrink(img), born: performance.now() });
-      if (layers.length > 3) layers.shift();
-      wake();
+      const put = () => {
+        // 初めの一葉　待たずに色を　置きにけり
+        const born = layers.length ? performance.now() : performance.now() - FADE;
+        layers.push({ art: shrink(img), born });
+        if (layers.length > 2) layers.shift();
+        wake();
+      };
+      img.decode ? img.decode().then(put, put) : put();
     };
     img.src = first;
     return () => {
@@ -45,15 +51,44 @@
   });
 
   onMount(() => {
-    const ctx = canvas.getContext("2d")!;
-    const work = document.createElement("canvas");
-    work.width = work.height = W;
-    const wctx = work.getContext("2d")!;
+    const ctx = canvas.getContext("2d", { willReadFrequently: true })!;
     const still = matchMedia("(prefers-reduced-motion: reduce)").matches;
     let raf = 0;
     let last = 0;
 
-    // 描くたび　霞をまといて　色を置く
+    // 縦横に　ならして滲む　色の箱
+    function boxBlur(px: Uint8ClampedArray, w: number, h: number, r: number) {
+      const tmp = new Uint8ClampedArray(px.length);
+      const d = 2 * r + 1;
+      const pass = (from: Uint8ClampedArray, to: Uint8ClampedArray, len: number, lines: number, step: number, stride: number) => {
+        for (let l = 0; l < lines; l++) {
+          const base = l * stride;
+          for (let c = 0; c < 3; c++) {
+            let sum = 0;
+            for (let k = -r; k <= r; k++) sum += from[base + Math.min(len - 1, Math.max(0, k)) * step + c];
+            for (let i = 0; i < len; i++) {
+              to[base + i * step + c] = sum / d;
+              sum += from[base + Math.min(len - 1, i + r + 1) * step + c] - from[base + Math.max(0, i - r) * step + c];
+            }
+          }
+        }
+      };
+      pass(px, tmp, w, h, 4, w * 4);
+      pass(tmp, px, h, w, w * 4, 4);
+    }
+
+    // 彩りを　少し濃くして　影に沈む
+    function tone(px: Uint8ClampedArray) {
+      for (let i = 0; i < px.length; i += 4) {
+        const g = 0.3 * px[i] + 0.59 * px[i + 1] + 0.11 * px[i + 2];
+        px[i] = (g + (px[i] - g) * 1.45) * 0.74;
+        px[i + 1] = (g + (px[i + 1] - g) * 1.45) * 0.74;
+        px[i + 2] = (g + (px[i + 2] - g) * 1.45) * 0.74;
+        px[i + 3] = 255;
+      }
+    }
+
+    // 回りつつ　溶けあう色の　渦を描く
     const paint = (t: number) => {
       raf = 0;
       if (document.hidden || !layers.length) return;
@@ -62,28 +97,29 @@
         return;
       }
       last = t;
+      const { width: w, height: h } = canvas;
+      ctx.globalAlpha = 1;
+      ctx.fillStyle = "#14141a";
+      ctx.fillRect(0, 0, w, h);
       const clock = still ? 0 : t;
-      wctx.globalAlpha = 1;
-      wctx.fillStyle = "#14141a";
-      wctx.fillRect(0, 0, W, W);
       for (const layer of layers) {
         const fade = still ? 1 : Math.min(1, (t - layer.born) / FADE);
         for (const b of BLOBS) {
           const a = clock * b.speed + b.phase;
-          const s = W * b.size;
-          wctx.save();
-          wctx.globalAlpha = fade * b.alpha;
-          wctx.translate(W / 2 + Math.cos(a * 0.7) * W * b.orbit, W / 2 + Math.sin(a) * W * b.orbit);
-          wctx.rotate(a);
-          wctx.drawImage(layer.art, -s / 2, -s / 2, s, s);
-          wctx.restore();
+          const s = Math.max(w, h) * b.size;
+          ctx.save();
+          ctx.globalAlpha = fade * b.alpha;
+          ctx.translate(w / 2 + Math.cos(a * 0.7) * w * b.orbit, h / 2 + Math.sin(a) * h * b.orbit);
+          ctx.rotate(a);
+          ctx.drawImage(layer.art, -s / 2, -s / 2, s, s);
+          ctx.restore();
         }
       }
-      // 一枚に　霞と色を　まとわせて
-      ctx.clearRect(0, 0, W, W);
-      ctx.filter = "blur(3.3px) saturate(1.45) brightness(0.74)";
-      ctx.drawImage(work, 0, 0);
-      ctx.filter = "none";
+      const img = ctx.getImageData(0, 0, w, h);
+      boxBlur(img.data, w, h, 4);
+      boxBlur(img.data, w, h, 3);
+      tone(img.data);
+      ctx.putImageData(img, 0, 0);
       if (!still) raf = requestAnimationFrame(paint);
     };
 
@@ -105,6 +141,7 @@
 </script>
 
 <div class="backdrop" aria-hidden="true">
+  {#if poster}<img class="poster" src={poster} alt="" />{/if}
   <canvas bind:this={canvas} width={W} height={W}></canvas>
   <div class="veil"></div>
   <div class="grain"></div>
@@ -115,8 +152,18 @@
     position: fixed;
     inset: 0;
     overflow: hidden;
-    background: #14141a;
+    background: radial-gradient(120% 100% at 50% 30%, #211a25 0%, #14141a 60%, #0e0d13 100%);
     z-index: 0;
+  }
+  /* 絵を先に　置きて黒への　間を塞ぐ */
+  .poster {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    transform: scale(1.32);
+    filter: blur(34px) saturate(1.35) brightness(0.7);
   }
   /* 窓変えど　絵は一枚の　まま伸びる */
   canvas {
