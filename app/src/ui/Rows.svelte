@@ -66,6 +66,8 @@
         clearTimeout(timer);
         timer = window.setTimeout(() => {
           if (cap < tracks.length) cap = Math.min(tracks.length, cap + BATCH);
+          // 見えたまま　ならばもう一度　問い直す
+          requestAnimationFrame(() => (io.unobserve(node), io.observe(node)));
         }, 140);
       },
       { root, rootMargin: "800px 0px" },
@@ -80,8 +82,9 @@
   }
 
   // 束新し　行の数を　数えけり
+  const sig = $derived(`${tracks.length}:${tracks[0]?.id ?? ""}:${tracks[tracks.length - 1]?.id ?? ""}`);
   $effect(() => {
-    void tracks;
+    void sig;
     cap = FIRST;
   });
 </script>

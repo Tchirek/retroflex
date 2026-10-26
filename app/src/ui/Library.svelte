@@ -95,6 +95,7 @@
         timer = window.setTimeout(() => {
           const total = mode === "lists" ? mine.length : shelf.length;
           if (cards < total) cards = Math.min(total, cards + STEP);
+          requestAnimationFrame(() => (io.unobserve(node), io.observe(node)));
         }, 140);
       },
       { root, rootMargin: "800px 0px" },
