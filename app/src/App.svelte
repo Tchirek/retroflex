@@ -837,7 +837,6 @@
     place-items: center;
     background: rgba(8, 8, 12, 0.45);
     backdrop-filter: blur(14px);
-    -webkit-backdrop-filter: blur(14px);
   }
   .ring {
     position: relative;

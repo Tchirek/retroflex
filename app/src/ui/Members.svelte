@@ -218,7 +218,6 @@
     background: rgba(24, 24, 30, 0.82);
     border: 1px solid rgba(255, 255, 255, 0.08);
     backdrop-filter: blur(30px) saturate(160%);
-    -webkit-backdrop-filter: blur(30px) saturate(160%);
     box-shadow: 0 18px 50px rgba(0, 0, 0, 0.45);
   }
   .card.invite {

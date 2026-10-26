@@ -56,7 +56,6 @@
     color: rgba(255, 255, 255, 0.92);
     background: rgba(255, 255, 255, 0.1);
     backdrop-filter: blur(24px) saturate(160%);
-    -webkit-backdrop-filter: blur(24px) saturate(160%);
   }
   .ghost {
     color: rgba(255, 255, 255, 0.55);
