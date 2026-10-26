@@ -8,9 +8,13 @@ let running = false;
 export function startFrames(): void {
   if (running) return;
   running = true;
-  const tick = () => {
-    if (!document.hidden) frame.t = performance.timeOrigin + performance.now();
-    window.setTimeout(tick, STEP);
+  // 拍に乗り　速き窓には　間を置きて
+  let last = 0;
+  const tick = (now: number) => {
+    requestAnimationFrame(tick);
+    if (now - last < STEP - 1) return;
+    last = now;
+    frame.t = performance.timeOrigin + performance.now();
   };
-  tick();
+  requestAnimationFrame(tick);
 }
