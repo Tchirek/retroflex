@@ -1,6 +1,6 @@
 [package]
 name = "retroflex"
-version = "0.4.11"
+version = "0.4.12"
 description = "Listen together, without a center."
 edition.workspace = true
 license.workspace = true
