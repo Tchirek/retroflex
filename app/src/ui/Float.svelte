@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { onMount } from "svelte";
   import type { Station } from "../lib/api";
   import Art from "./Art.svelte";
 
@@ -49,6 +50,7 @@
 
   // 行く先の　今の姿を　毎拍追う
   function frame(now: number) {
+    if (!el) return;
     const s = slot();
     if (!s) return;
     const kindNow = s.dataset.slot ?? "big";
@@ -70,23 +72,56 @@
     el.style.borderRadius = `${next.r}px`;
   }
 
+  let raf = 0;
+  let until = 0;
+
+  // 針を止め　動くときのみ　影を追う
+  function wake(ms = 700) {
+    until = Math.max(until, performance.now() + ms);
+    if (!raf && !document.hidden) raf = requestAnimationFrame(loop);
+  }
+
+  function loop(now: number) {
+    raf = 0;
+    frame(now);
+    if (!document.hidden && (flight || now < until)) raf = requestAnimationFrame(loop);
+  }
+
   $effect(() => {
     void at;
     if (box) flight = { from: box, t0: performance.now() };
+    wake();
   });
 
-  $effect(() => {
-    let raf = 0;
-    const loop = (now: number) => {
-      raf = requestAnimationFrame(loop);
-      frame(now);
+  onMount(() => {
+    // 窓移り　器の丈を　測りけり
+    const measure = () => {
+      radii = new WeakMap();
+      wake(500);
     };
-    raf = requestAnimationFrame(loop);
-    const reset = () => (radii = new WeakMap());
-    addEventListener("resize", reset);
+    const ro = new ResizeObserver(measure);
+    ro.observe(document.documentElement);
+    const phone = document.querySelector(".phone");
+    if (phone) ro.observe(phone);
+    const view = () => wake(400);
+    visualViewport?.addEventListener("resize", view);
+    visualViewport?.addEventListener("scroll", view);
+    addEventListener("resize", view);
+    addEventListener("orientationchange", view);
+    // 翳りし間　戻りし時に　また測る
+    const show = () => {
+      if (!document.hidden) measure();
+    };
+    document.addEventListener("visibilitychange", show);
+    wake(900);
     return () => {
       cancelAnimationFrame(raf);
-      removeEventListener("resize", reset);
+      ro.disconnect();
+      visualViewport?.removeEventListener("resize", view);
+      visualViewport?.removeEventListener("scroll", view);
+      removeEventListener("resize", view);
+      removeEventListener("orientationchange", view);
+      document.removeEventListener("visibilitychange", show);
     };
   });
 </script>
@@ -107,7 +142,7 @@
     width: 0;
     height: 0;
     pointer-events: none;
-    will-change: transform, width, height;
+    will-change: transform;
   }
   .inner {
     width: 100%;
