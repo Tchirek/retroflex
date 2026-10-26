@@ -117,6 +117,7 @@
           bind:this={els[i]}
           class="line"
           class:on={i === active}
+          class:soft={lyrics.synced && i !== active && Math.abs(d) <= 8}
           class:lit={i === lit && lyrics.synced}
           class:past={lyrics.synced && i < active}
           class:gap={!line.text}
@@ -173,15 +174,17 @@
     color: rgba(255, 255, 255, 0.28);
     transform: translateY(var(--y)) scale(var(--s));
     transform-origin: 0 50%;
-    filter: blur(var(--blur));
     transition:
       transform 0.75s var(--ease) var(--d),
       color 0.4s var(--ease),
       filter 0.4s var(--ease),
       background-color 0.08s linear;
-    will-change: transform;
     text-wrap: pretty;
     cursor: pointer;
+  }
+  /* 近き行　霞をまといて　遠き去る */
+  .line.soft {
+    filter: blur(var(--blur));
   }
   .hover .line,
   .free .line {
