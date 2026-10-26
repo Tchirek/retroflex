@@ -66,8 +66,29 @@
     haptic();
   }
 
+  // 札ひとつ　重なりの外へ　持ち上げる
+  function lift(node: HTMLElement) {
+    document.body.append(node);
+    let raf = 0;
+    const follow = () => {
+      const r = box.getBoundingClientRect();
+      node.style.left = right ? "auto" : `${r.left - 4}px`;
+      node.style.right = right ? `${innerWidth - r.right - 4}px` : "auto";
+      node.style.top = below ? `${r.bottom + 12}px` : "auto";
+      node.style.bottom = below ? "auto" : `${innerHeight - r.top + 12}px`;
+      raf = requestAnimationFrame(follow);
+    };
+    follow();
+    return {
+      destroy() {
+        cancelAnimationFrame(raf);
+        node.remove();
+      },
+    };
+  }
+
   function away(e: PointerEvent) {
-    if (box.contains(e.target as Node)) return;
+    if (box.contains(e.target as Node) || (e.target as Element).closest?.("[data-card]")) return;
     if (open !== null) {
       commit();
       open = null;
@@ -108,14 +129,14 @@
   </button>
 
   {#if inviting}
-    <div class="card invite" class:below class:right transition:fade={{ duration: 140 }}>
+    <div class="card invite" data-card use:lift transition:fade={{ duration: 140 }}>
       <Invite {room} {link} />
     </div>
   {/if}
 
   {#if shown}
     <!-- 名札には　名と色ばかり　声低く -->
-    <div class="card" class:below class:right transition:fade={{ duration: 140 }}>
+    <div class="card" data-card use:lift transition:fade={{ duration: 140 }}>
       <span class="big" style:--hue={shown.profile?.hue ?? 0}>{initial(shown.id === room.me ? draft || room.profile.nick : shown.profile?.nick)}</span>
       {#if shown.id === room.me}
         <input
@@ -204,10 +225,8 @@
 
   /* 硝子越し　名札ひと枚　控えめに */
   .card {
-    position: absolute;
-    left: -4px;
-    bottom: calc(100% + 12px);
-    z-index: 30;
+    position: fixed;
+    z-index: 50;
     width: 212px;
     display: flex;
     flex-direction: column;
@@ -225,14 +244,6 @@
     width: auto;
     align-items: center;
     padding: 16px 16px 10px;
-  }
-  .card.below {
-    bottom: auto;
-    top: calc(100% + 12px);
-  }
-  .card.right {
-    left: auto;
-    right: -4px;
   }
   .big {
     display: grid;
