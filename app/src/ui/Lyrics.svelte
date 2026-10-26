@@ -51,7 +51,8 @@
     last = active;
     return jump;
   });
-  const shift = $derived(manual ?? height * 0.32 - (tops[Math.max(0, active)] ?? 0));
+  // 整数に　落とせば止まりて　揺れもせず
+  const shift = $derived(Math.round(manual ?? height * 0.32 - (tops[Math.max(0, active)] ?? 0)));
 
   // 行ごとの　高さを測り　位置を知る
   $effect(() => {
@@ -127,6 +128,7 @@
           class="line"
           class:on={i === active}
           class:soft={lyrics.synced && i !== active && Math.abs(d) <= 8}
+          class:near={lyrics.synced && Math.abs(d) <= 8}
           class:lit={i === lit && lyrics.synced}
           class:past={lyrics.synced && i < active}
           class:gap={!line.text}
@@ -192,6 +194,10 @@
     cursor: pointer;
   }
   /* 近き行　霞をまといて　遠き去る */
+  /* 近き行　層を保ちて　着地澄む */
+  .line.near {
+    will-change: transform;
+  }
   .line.soft {
     filter: blur(var(--blur));
   }
