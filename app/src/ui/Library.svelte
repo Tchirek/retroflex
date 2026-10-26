@@ -199,7 +199,8 @@
     </div>
   </div>
 
-  <div class="body scroll">
+  <div class="viewport">
+    <div class="body scroll">
     {#if query}
       <div in:fade={{ duration: 120 }}>
         <Rows tracks={found} {station} {onadd} {queued} {toggle} {nowId} {playing} {onplaypause} picked={rowsPick} onpick={pick} />
@@ -318,6 +319,7 @@
       <a href="https://www.gnu.org/licenses/agpl-3.0.html" target="_blank" rel="noopener" onclick={out}>AGPL-3.0<Icon name="out" size={11} stroke={2} /></a>
       (Code). All rights reversed.
     </footer>
+    </div>
   </div>
 
   {#if picking}
@@ -446,12 +448,17 @@
   .legal a:hover {
     color: var(--fg);
   }
-  .body {
+  /* 深き棚　霞は窓の　縁に置く */
+  .viewport {
+    position: relative;
     flex: 1;
     min-height: 0;
-    padding-bottom: 40px;
     mask-image: linear-gradient(180deg, #000 calc(100% - 40px), transparent);
     -webkit-mask-image: linear-gradient(180deg, #000 calc(100% - 40px), transparent);
+  }
+  .body {
+    height: 100%;
+    padding-bottom: 40px;
   }
   .grid {
     display: grid;
