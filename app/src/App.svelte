@@ -277,6 +277,21 @@
     target = t;
   }
 
+  // 部屋を出て　棚の灯りへ　還りけり
+  function leaveRoom() {
+    const seen = browsing;
+    const here = station;
+    if (seen) {
+      browse();
+      go({ kind: "station", hub: seen.hub, station: seen.station, key: seen.key });
+    } else if (here) {
+      browse();
+      go({ kind: "station", hub: here.hub, station: here.name, key: here.pass });
+    } else {
+      go({ kind: "none" });
+    }
+  }
+
   function onlink(text: string): boolean | Promise<boolean> {
     const t = parseTarget(text, homeHub());
     const code = text.toUpperCase().replace(/[\s-]/g, "");
@@ -747,7 +762,7 @@
       <Progress time={pos} duration={current?.duration ?? 0} onseek={(t) => room?.seek(t)} locked={open} />
       <Transport {...transport} />
       <div class="foot">
-        {#if room}<Members {room} {link} />{:else}<span></span>{/if}
+        {#if room}<Members {room} {link} onleave={leaveRoom} />{:else}<span></span>{/if}
         {#if player}<div class="vol"><Volume value={player.volume} onchange={(v) => player?.setVolume(v)} /></div>{/if}
       </div>
       {#if room}<div class="whispers">{#if shown !== "chat"}<Whisper {room} />{/if}</div>{/if}
@@ -783,7 +798,7 @@
                   {#if current?.album}<span class="sep">·</span><button class="album ellipsis" onclick={openAlbum}>{current.album}</button>{/if}
                 </div>
               </div>
-              {#if room}<Members {room} {link} />{/if}
+              {#if room}<Members {room} {link} onleave={leaveRoom} />{/if}
             </div>
           </section>
           <section class="leaf lyrics" class:arrive={leafArrive} style:--from="{leafFrom}px" aria-hidden={view !== "lyrics"} inert={view !== "lyrics"}>
@@ -793,7 +808,7 @@
                 <button class="title ellipsis" onclick={openAlbum}>{current?.title ?? ""}</button>
                 <button class="artist ellipsis" onclick={openArtist}>{current?.artist ?? ""}</button>
               </div>
-              {#if room}<Members {room} {link} />{/if}
+              {#if room}<Members {room} {link} onleave={leaveRoom} />{/if}
             </header>
             <section class="pane">{@render pane("lyrics")}</section>
           </section>

@@ -7,7 +7,7 @@
   import Icon from "./Icon.svelte";
   import Invite from "./Invite.svelte";
 
-  let { room, link }: { room: Room; link: string } = $props();
+  let { room, link, onleave }: { room: Room; link: string; onleave: () => void } = $props();
 
   const HUES = [350, 22, 45, 140, 178, 205, 250, 290];
   let open = $state<number | null>(null);
@@ -64,6 +64,13 @@
     saveProfile(p);
     room.rename(p);
     haptic();
+  }
+
+  // 戸を開き　名残を畳み　外へ出る
+  function exit() {
+    commit();
+    haptic("medium");
+    onleave();
   }
 
   // 札ひとつ　重なりの外へ　持ち上げる
@@ -137,6 +144,9 @@
   {#if shown}
     <!-- 名札には　名と色ばかり　声低く -->
     <div class="card" data-card use:lift transition:fade={{ duration: 140 }}>
+      {#if shown.id === room.me}
+        <button class="leave" aria-label="Leave room" onclick={exit}><Icon name="leave" size={17} /></button>
+      {/if}
       <span class="big" style:--hue={shown.profile?.hue ?? 0}>{initial(shown.id === room.me ? draft || room.profile.nick : shown.profile?.nick)}</span>
       {#if shown.id === room.me}
         <input
@@ -239,6 +249,29 @@
     backdrop-filter: blur(30px) saturate(160%);
     -webkit-backdrop-filter: blur(30px) saturate(160%);
     box-shadow: 0 18px 50px rgba(0, 0, 0, 0.45);
+  }
+  /* 戸口へと　指を伸ばせる　小さき灯 */
+  .leave {
+    position: absolute;
+    top: 10px;
+    right: 10px;
+    display: grid;
+    place-items: center;
+    width: 30px;
+    height: 30px;
+    border-radius: 50%;
+    color: var(--fg-3);
+    transition:
+      color 0.18s var(--ease),
+      background 0.18s var(--ease),
+      transform 0.2s var(--spring);
+  }
+  .leave:hover {
+    color: var(--fg);
+    background: var(--glass);
+  }
+  .leave:active {
+    transform: scale(0.9);
   }
   .card.invite {
     width: auto;
