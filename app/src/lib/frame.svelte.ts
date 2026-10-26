@@ -1,10 +1,10 @@
 // 一齣ごと　画面の針を　進めけり
 export const frame = $state({ t: 0 });
 
-const STEP = 50;
+const STEP = 16;
 let running = false;
 
-// 刻み足　二十の拍に　息を継ぐ
+// 時を追う　息を弾ませ　針進む
 export function startFrames(): void {
   if (running) return;
   running = true;
