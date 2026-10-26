@@ -29,7 +29,7 @@ export class Station {
   }
 
   audio(id: string, relay = false): string {
-    return this.url(`audio/${id}`, relay ? "&relay=1" : "");
+    return this.url(`audio/${id}`, `${relay ? "&relay=1" : ""}&v=2`);
   }
 
   cover(id: string | undefined, thumb = true): string | undefined {

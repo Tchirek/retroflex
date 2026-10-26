@@ -95,3 +95,19 @@ export function unsealText(key: Uint8Array, text: string): string | null {
 
 // 文字の数　四つで割れば　知れる丈
 export const chars = (text: string) => Array.from(text).length;
+
+let fallbackClient = '';
+
+// 棲家をば　古き席ごと　畳みけり
+export function clientKey(): string {
+  try {
+    let id = sessionStorage.getItem("retroflex.client");
+    if (!id) {
+      id = b64u(randomBytes(16));
+      sessionStorage.setItem("retroflex.client", id);
+    }
+    return id;
+  } catch {
+    return (fallbackClient ||= b64u(randomBytes(16)));
+  }
+}

@@ -120,11 +120,12 @@ struct Member {
     tx: mpsc::Sender<Message>,
     spent: VecDeque<(Instant, usize)>,
     drafted: Option<Instant>,
+    client: Option<String>,
 }
 
 impl Member {
-    fn new(tx: mpsc::Sender<Message>) -> Self {
-        Self { profile: None, tx, spent: VecDeque::new(), drafted: None }
+    fn new(tx: mpsc::Sender<Message>, client: Option<String>) -> Self {
+        Self { profile: None, tx, spent: VecDeque::new(), drafted: None, client }
     }
 
     // 一分に　語り得る字の　升を見る
@@ -454,6 +455,16 @@ impl Inner {
         }
     }
 
+    // 古き席　同じ棲家の　主を待つ
+    fn claim(&mut self, client: Option<&str>) -> Vec<u32> {
+        let Some(client) = client.filter(|c| (8..=64).contains(&c.len())) else { return Vec::new() };
+        let stale: Vec<u32> = self.members.iter().filter(|(_, m)| m.client.as_deref() == Some(client)).map(|(id, _)| *id).collect();
+        for id in &stale {
+            self.members.remove(id);
+        }
+        stale
+    }
+
     // 似た耳を　人の数とで　はかり合う
     fn score(&self, taste: &HashSet<String>) -> f64 {
         let n = self.members.len() as f64;
@@ -641,6 +652,8 @@ pub async fn redeem(State(hub): State<Hub>, Path(code): Path<String>) -> Respons
 #[derive(Deserialize)]
 pub struct JoinQuery {
     t: String,
+    #[serde(default)]
+    c: Option<String>,
 }
 
 // 戸の外で　まだ灯りあるかと　耳澄ます
@@ -655,7 +668,7 @@ pub async fn probe(State(hub): State<Hub>, Path(id): Path<String>, Query(q): Que
 pub async fn join(State(hub): State<Hub>, Path(id): Path<String>, Query(q): Query<JoinQuery>, ws: WebSocketUpgrade) -> Response {
     match hub.rooms.get(&id) {
         Some(room) if same(&key_hash(&q.t), &room.ticket) => {
-            ws.max_message_size(64 * 1024).on_upgrade(move |socket| member(room, hub.stations, socket))
+            ws.max_message_size(64 * 1024).on_upgrade(move |socket| member(room, hub.stations, socket, q.c))
         }
         Some(_) => StatusCode::FORBIDDEN.into_response(),
         None => StatusCode::NOT_FOUND.into_response(),
@@ -663,11 +676,15 @@ pub async fn join(State(hub): State<Hub>, Path(id): Path<String>, Query(q): Quer
 }
 
 // 戸を叩き　名もなき席に　腰おろす
-async fn member(room: Arc<Room>, stations: Stations, socket: WebSocket) {
+async fn member(room: Arc<Room>, stations: Stations, socket: WebSocket, client: Option<String>) {
+    let client = client.filter(|c| (8..=64).contains(&c.len()));
     let (mut sink, mut stream) = socket.split();
     let (tx, mut rx) = mpsc::channel::<Message>(512);
     let seat = {
         let mut inner = room.inner.lock().unwrap();
+        for id in inner.claim(client.as_deref()) {
+            inner.broadcast(&json!({ "t": "leave", "id": id }), None);
+        }
         let cap = if inner.public { PUBLIC_CAP } else { MAX_MEMBERS };
         (inner.members.len() < cap).then(|| {
             inner.next_member += 1;
@@ -679,7 +696,7 @@ async fn member(room: Arc<Room>, stations: Stations, socket: WebSocket) {
             let _ = tx.try_send(msg(&welcome));
             let _ = tx.try_send(msg(&inner.state(now)));
             inner.broadcast(&json!({ "t": "join", "id": me }), None);
-            inner.members.insert(me, Member::new(tx.clone()));
+            inner.members.insert(me, Member::new(tx.clone(), client.clone()));
             inner.empty_since = None;
             me
         })
@@ -747,7 +764,21 @@ mod tests {
 
     fn seat(r: &mut Inner, id: u32) {
         let (tx, _rx) = mpsc::channel(64);
-        r.members.insert(id, Member::new(tx));
+        r.members.insert(id, Member::new(tx, None));
+    }
+
+    // 古き席　同じ名乗りに　明け渡す
+    #[test]
+    fn same_client_reclaims_the_seat() {
+        let mut r = Inner::default();
+        let (tx, _rx) = mpsc::channel(64);
+        r.members.insert(1, Member::new(tx, Some("abcdefgh".into())));
+        let (tx, _rx) = mpsc::channel(64);
+        r.members.insert(2, Member::new(tx, Some("ijklmnop".into())));
+        assert_eq!(r.claim(Some("abcdefgh")), vec![1]);
+        assert!(!r.members.contains_key(&1));
+        assert!(r.members.contains_key(&2));
+        assert!(r.claim(Some("short")).is_empty());
     }
 
     fn sealed(chars: usize) -> String {

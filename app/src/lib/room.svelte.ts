@@ -1,6 +1,6 @@
 import type { Snap } from "./api";
 import { Clock } from "./clock";
-import { derive, seal, sealText, unseal, unsealText, type Keys } from "./crypto";
+import { clientKey, derive, seal, sealText, unseal, unsealText, type Keys } from "./crypto";
 import type { Profile } from "./names";
 
 export type QItem = Snap & { qid: number; by: number; auto?: boolean };
@@ -64,7 +64,7 @@ export class Room {
   connect(): void {
     if (this.stopped) return;
     this.status = "connecting";
-    const url = `${this.hub.replace(/^http/, "ws")}/api/rooms/${this.id}/ws?t=${encodeURIComponent(this.keys.ticket)}`;
+    const url = `${this.hub.replace(/^http/, "ws")}/api/rooms/${this.id}/ws?t=${encodeURIComponent(this.keys.ticket)}&c=${encodeURIComponent(clientKey())}`;
     const ws = new WebSocket(url);
     let opened = false;
     this.ws = ws;
