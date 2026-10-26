@@ -5,7 +5,7 @@
   import { snap, type Snap, type Station, type Track } from "../lib/api";
   import { backable } from "../lib/back.svelte";
   import { haptic } from "../lib/haptics";
-  import { albums, search, type Album } from "../lib/library";
+  import { albums, search, type Album, type Look } from "../lib/library";
   import { listLink } from "../lib/link";
   import { isApp, openExternal } from "../lib/links";
   import { keep } from "../lib/offline.svelte";
@@ -35,6 +35,8 @@
     playing,
     onplaypause,
     focus = null,
+    look = null,
+    onlook,
     lounge,
   }: {
     tracks: Track[];
@@ -46,6 +48,8 @@
     playing: boolean;
     onplaypause: () => void;
     focus?: Sheet | null;
+    look?: Look | null;
+    onlook?: () => void;
     lounge?: Snippet;
   } = $props();
 
@@ -63,6 +67,7 @@
   let query = $state("");
   let open = $state<Album | null>(null);
   let list = $state<Sheet | null>(null);
+  let artist = $state<string | null>(null);
   let mode = $state<Shelf>("albums");
   let shared = $state(false);
   let segScrub = $state(false);
@@ -70,6 +75,10 @@
   const found = $derived(search(tracks, query));
   const byId = $derived(new Map(tracks.map((t) => [t.id, t])));
   const mine = $derived(playlists.filter((p) => !station || p.station === station.name));
+  const artistAlbums = $derived(
+    artist ? shelf.filter((a) => a.artist === artist || a.tracks.some((t) => t.artist === artist || t.album_artist === artist)) : [],
+  );
+  const artistTracks = $derived(artist ? tracks.filter((t) => t.artist === artist || t.album_artist === artist) : []);
 
   const FIRST = 48;
   const STEP = 24;
@@ -122,8 +131,44 @@
     untrack(() => {
       query = "";
       open = null;
+      artist = null;
       if (f.id) mode = "lists";
       list = f;
+    });
+  });
+
+  // 指の名は　窓の行先　開きけり
+  $effect(() => {
+    const want = look;
+    if (!want) return;
+    if (want.kind === "artist") {
+      const known = tracks.some((t) => t.artist === want.name || t.album_artist === want.name);
+      if (!known) {
+        if (tracks.length) onlook?.();
+        return;
+      }
+      untrack(() => {
+        query = "";
+        open = null;
+        list = null;
+        artist = want.name;
+        mode = "albums";
+        onlook?.();
+      });
+      return;
+    }
+    const album = shelf.find((a) => a.tracks.some((t) => t.id === want.id));
+    if (!album) {
+      if (tracks.length) onlook?.();
+      return;
+    }
+    untrack(() => {
+      query = "";
+      list = null;
+      artist = null;
+      open = album;
+      mode = "albums";
+      onlook?.();
     });
   });
 
@@ -143,6 +188,21 @@
     mode = m;
     open = null;
     list = null;
+    artist = null;
+  }
+
+  // 窓ひとつ　戻る手順を　指に聞く
+  function backOne() {
+    if (open) open = null;
+    else if (list) list = null;
+    else artist = null;
+  }
+
+  // 盤の名を　同じ名の棚　繋ぎけり
+  function seeArtist() {
+    if (!open) return;
+    artist = open.artist;
+    open = null;
   }
 
   function stamp(at: number): string {
@@ -171,7 +231,7 @@
   // 長押しで　選ぶ印を　ひとつずつ
   const picked = new SvelteSet<string>();
   let picking = $state(false);
-  const scope = $derived(query ? "found" : open ? "album" : list ? "list" : mode);
+  const scope = $derived(query ? "found" : open ? "album" : list ? "list" : artist ? "artist" : mode);
 
   function begin(key: string) {
     picking = true;
@@ -191,19 +251,20 @@
     void scope;
     void open;
     void list;
+    void artist;
     untrack(leave);
   });
 
   backable(() => picking, leave);
-  backable(
-    () => !!(open || list),
-    () => ((open = null), (list = null)),
-  );
+  backable(() => !!artist, () => (artist = null));
+  backable(() => !!list, () => (list = null));
+  backable(() => !!open, () => (open = null));
 
   const pool = $derived.by((): Track[] => {
     if (scope === "found") return found;
     if (scope === "album") return open?.tracks ?? [];
     if (scope === "list") return full(list?.tracks ?? []);
+    if (scope === "artist") return artistTracks;
     return tracks;
   });
   const chosen = $derived.by((): Track[] => {
@@ -234,8 +295,8 @@
 
 <div class="library">
   <div class="head">
-    {#if (open || list) && !query}
-      <button class="icon-btn" aria-label="Back" onclick={() => ((open = null), (list = null))}><Icon name="back" /></button>
+    {#if (open || list || artist) && !query}
+      <button class="icon-btn" aria-label="Back" onclick={backOne}><Icon name="back" /></button>
     {/if}
     <label class="find">
       <Icon name="search" size={17} />
@@ -281,7 +342,7 @@
           <span class="cover big"><Art {station} cover={open.cover} full eager /></span>
           <div class="info">
             <div class="name">{open.title}</div>
-            <div class="by">{open.artist}</div>
+            <button class="by link" onclick={seeArtist}>{open.artist}</button>
             {#if open.year}<div class="year">{open.year}</div>{/if}
             <div class="acts">
               <button class="pill solid" aria-label={busy ? "Pause" : "Play album"} onclick={() => start(open!.tracks)}>
@@ -294,6 +355,40 @@
           </div>
         </div>
         <Rows tracks={open.tracks} {station} art={false} numbered {onadd} {queued} {toggle} {nowId} {playing} {onplaypause} picked={rowsPick} onpick={pick} />
+      </div>
+    {:else if artist}
+      {@const at = artistTracks}
+      {@const busy = live(at) && playing}
+      <!-- 同じ名の　歌をひと棚　集めけり -->
+      <div class="album artist-view" in:fly={{ x: 24, duration: 260 }}>
+        <div class="artist-head">
+          <span class="artist-face"><Art {station} cover={artistAlbums[0]?.cover ?? at[0]?.cover} full eager /></span>
+          <div class="info">
+            <div class="name">{artist}</div>
+            <div class="by">{artistAlbums.length} · {at.length}</div>
+            <div class="acts">
+              <button class="pill solid" aria-label={busy ? "Pause" : "Play artist"} onclick={() => start(at)}>
+                <Icon name={busy ? "pause" : "play"} size={18} />
+              </button>
+              <button class="pill" aria-label="Play artist next" onclick={() => take(at, "next")}><Icon name="playnext" size={18} /></button>
+              <AddToggle variant="pill" on={queued(ids(at))} onclick={() => toggle(at.map(snap))} />
+            </div>
+          </div>
+        </div>
+        {#if artistAlbums.length}
+          <div class="grid artist-shelf">
+            {#each artistAlbums as a (a.key)}
+              <div class="card">
+                <button class="face" onclick={() => (open = a)} aria-label={a.title}>
+                  <span class="cover"><Art {station} cover={a.cover} /></span>
+                  <span class="title ellipsis">{a.title}</span>
+                  <span class="sub ellipsis">{a.year ?? a.artist}</span>
+                </button>
+              </div>
+            {/each}
+          </div>
+        {/if}
+        <Rows tracks={at} {station} {onadd} {queued} {toggle} {nowId} {playing} {onplaypause} picked={rowsPick} onpick={pick} />
       </div>
     {:else if list}
       {@const lt = full(list.tracks)}
@@ -709,6 +804,39 @@
     font-size: 16px;
     color: var(--fg-2);
     margin-top: 4px;
+  }
+  .by.link {
+    display: block;
+    text-align: left;
+    cursor: pointer;
+    transition: color 0.18s var(--ease);
+  }
+  .by.link:hover {
+    color: var(--fg);
+  }
+  .artist-shelf {
+    margin-bottom: 20px;
+  }
+  /* 丸き窓　同じ歌い手の　顔となる */
+  .artist-head {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    margin: 2px 0 20px;
+  }
+  .artist-face {
+    width: 76px;
+    height: 76px;
+    flex: none;
+    border-radius: 50%;
+    overflow: hidden;
+    box-shadow: 0 12px 30px rgba(0, 0, 0, 0.35);
+  }
+  .artist-head .info {
+    flex: 1;
+  }
+  .artist-head .acts {
+    margin-top: 10px;
   }
   .year {
     font-size: 13px;

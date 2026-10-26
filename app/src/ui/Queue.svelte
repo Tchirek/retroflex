@@ -82,7 +82,7 @@
           </span>
           <span class="meta">
             <span class="title ellipsis">{item.title}</span>
-            <span class="artist ellipsis">{item.artist}</span>
+            <span class="artist ellipsis">{item.artist}{item.album ? ` · ${item.album}` : ""}</span>
           </span>
           {#if item.auto}
             <span class="auto"><Icon name="shuffle" size={15} /></span>

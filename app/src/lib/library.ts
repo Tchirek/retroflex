@@ -2,6 +2,9 @@ import type { Track } from "./api";
 
 export type Album = { key: string; title: string; artist: string; year?: number; cover?: string; tracks: Track[] };
 
+// 名を辿る　窓の行先　ここに置く
+export type Look = { kind: "album"; id: string } | { kind: "artist"; name: string };
+
 // 散る歌を　盤ごとにまた　束ね直す
 export function albums(tracks: Track[]): Album[] {
   const map = new Map<string, Album>();

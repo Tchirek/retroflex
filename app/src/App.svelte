@@ -13,6 +13,7 @@
   import { frame, startFrames } from "./lib/frame.svelte";
   import { hash, parseTarget, roomLink, type Target } from "./lib/link";
   import { parseLrc, tongue, type Lyrics as LyricData } from "./lib/lrc";
+  import { type Look } from "./lib/library";
   import { loadProfile } from "./lib/names";
   import { adoptPlaylist } from "./lib/playlists.svelte";
   import { remember, taste } from "./lib/taste";
@@ -58,6 +59,7 @@
   const initial: Target = first.kind === "list" ? { kind: "station", hub: first.hub, station: first.station, key: "" } : first;
   let incoming = $state<{ station: string; ids: string[] } | null>(first.kind === "list" ? { station: first.station, ids: first.ids } : null);
   let focus = $state<{ id?: string; at: number; tracks: Snap[] } | null>(null);
+  let look = $state<Look | null>(null);
   let target = $state<Target>(initial);
   let room = $state<Room | null>(null);
   let player = $state<Player | null>(null);
@@ -159,6 +161,32 @@
     panel = "library";
     view = "library";
   }
+
+  // 名を押せば　棚の窓へと　歩み寄る
+  function showLibrary() {
+    if (wide) {
+      if (panel !== "library") {
+        haptic();
+        panel = "library";
+      }
+    } else if (view !== "library") turn("library");
+  }
+
+  function openAlbum() {
+    if (!current?.id) return;
+    look = { kind: "album", id: current.id };
+    showLibrary();
+  }
+
+  function openArtist() {
+    if (!current?.artist) return;
+    look = { kind: "artist", name: current.artist };
+    showLibrary();
+  }
+
+  $effect(() => {
+    if (wide ? panel !== "library" : view !== "library") look = null;
+  });
 
   // 部屋の札　変われば糸を　張り替える
   $effect(() => {
@@ -710,8 +738,11 @@
     <section class="stage">
       <div class="art"><Cover {station} cover={current?.cover} playing={room?.playing ?? false} /></div>
       <div class="meta">
-        <div class="title ellipsis">{current?.title ?? ""}</div>
-        <div class="artist ellipsis">{current?.artist ?? ""}</div>
+        <button class="title ellipsis" onclick={openAlbum}>{current?.title ?? ""}</button>
+        <div class="under">
+          <button class="artist ellipsis" onclick={openArtist}>{current?.artist ?? ""}</button>
+          {#if current?.album}<span class="sep">·</span><button class="album ellipsis" onclick={openAlbum}>{current.album}</button>{/if}
+        </div>
       </div>
       <Progress time={pos} duration={current?.duration ?? 0} onseek={(t) => room?.seek(t)} locked={open} />
       <Transport {...transport} />
@@ -746,8 +777,11 @@
             </div>
             <div class="row">
               <div class="meta">
-                <div class="title ellipsis">{current?.title ?? ""}</div>
-                <div class="artist ellipsis">{current?.artist ?? ""}</div>
+                <button class="title ellipsis" onclick={openAlbum}>{current?.title ?? ""}</button>
+                <div class="under">
+                  <button class="artist ellipsis" onclick={openArtist}>{current?.artist ?? ""}</button>
+                  {#if current?.album}<span class="sep">·</span><button class="album ellipsis" onclick={openAlbum}>{current.album}</button>{/if}
+                </div>
               </div>
               {#if room}<Members {room} {link} />{/if}
             </div>
@@ -756,8 +790,8 @@
             <header class="mini">
               <button class="thumb" data-slot="thumb" aria-label="Now playing" onclick={() => turn("now")}></button>
               <div class="meta">
-                <div class="title ellipsis">{current?.title ?? ""}</div>
-                <div class="artist ellipsis">{current?.artist ?? ""}</div>
+                <button class="title ellipsis" onclick={openAlbum}>{current?.title ?? ""}</button>
+                <button class="artist ellipsis" onclick={openArtist}>{current?.artist ?? ""}</button>
               </div>
               {#if room}<Members {room} {link} />{/if}
             </header>
@@ -832,6 +866,8 @@
         playing={room?.playing ?? false}
         onplaypause={() => (room?.playing ? room.pause() : transport.onplay())}
         {focus}
+        {look}
+        onlook={() => (look = null)}
       >
         {#snippet lounge()}
           {#if browsing?.key === ""}<Lounge onmatch={matchmake} oncode={joinCode} />{/if}
@@ -958,6 +994,43 @@
     font-size: clamp(15px, 1.3vw, 19px);
     color: var(--fg-2);
     margin-top: 2px;
+  }
+  /* 名を辿る　三つの文字を　道しるべ */
+  .meta .title,
+  .meta .artist,
+  .meta .album {
+    display: block;
+    max-width: 100%;
+    text-align: left;
+    cursor: pointer;
+  }
+  .meta .title {
+    width: 100%;
+  }
+  .meta button:hover {
+    color: var(--fg);
+  }
+  .under {
+    display: flex;
+    align-items: baseline;
+    gap: 6px;
+    min-width: 0;
+    width: 100%;
+  }
+  .under .artist {
+    flex: 0 1 auto;
+    max-width: 58%;
+    margin-top: 0;
+  }
+  .under .album {
+    flex: 1 1 auto;
+    min-width: 0;
+    font-size: 0.82em;
+    color: var(--fg-3);
+  }
+  .under .sep {
+    flex: none;
+    color: var(--fg-3);
   }
   .foot {
     display: flex;
