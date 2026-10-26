@@ -22,7 +22,9 @@ function persist() {
   } catch {}
 }
 
-export function savePlaylist(station: string, tracks: Snap[]): Playlist | null {
+export function savePlaylist(station: string, all: Snap[]): Playlist | null {
+  // 一つ歌　手帳に二度は　書かずおく
+  const tracks = [...new Map(all.map((t) => [t.id, t])).values()];
   if (!tracks.length) return null;
   const list: Playlist = { id: crypto.getRandomValues(new Uint32Array(2)).join("-"), station, at: Date.now(), tracks };
   playlists.unshift(list);

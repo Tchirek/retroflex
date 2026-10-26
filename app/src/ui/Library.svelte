@@ -127,6 +127,12 @@
     });
   });
 
+  // 表紙には　重なる歌を　一度だけ
+  function faces(lt: Track[]): Track[] {
+    const one = [...new Map(lt.map((t) => [t.id, t])).values()];
+    return one.slice(0, one.length >= 4 ? 4 : 1);
+  }
+
   // 札だけの　歌も棚から　身を借りる
   function full(s: Snap[]): Track[] {
     return s.map((t) => byId.get(t.id) ?? { ...t, mime: "", size: 0, lyrics: false });
@@ -296,8 +302,8 @@
       <!-- 手帳から　選びし束を　また鳴らす -->
       <div class="album" in:fly={{ x: 24, duration: 260 }}>
         <div class="hero">
-          <span class="cover big" class:mosaic={lt.length >= 4}>
-            {#each lt.slice(0, lt.length >= 4 ? 4 : 1) as t (t.id)}<span><Art {station} cover={t.cover} /></span>{/each}
+          <span class="cover big" class:mosaic={faces(lt).length >= 4}>
+            {#each faces(lt) as t (t.id)}<span><Art {station} cover={t.cover} /></span>{/each}
           </span>
           <div class="info">
             <div class="name">{lt[0]?.title ?? ""}</div>
@@ -336,8 +342,8 @@
           {@const lt = full(p.tracks)}
           <div class="card" class:sel={picked.has(p.id)}>
             <button class="face" use:press={() => begin(p.id)} onclick={() => (picking ? flip(p.id) : (list = p))} aria-label={lt[0]?.title}>
-              <span class="cover" class:mosaic={lt.length >= 4}>
-                {#each lt.slice(0, lt.length >= 4 ? 4 : 1) as t (t.id)}<span><Art {station} cover={t.cover} /></span>{/each}
+              <span class="cover" class:mosaic={faces(lt).length >= 4}>
+                {#each faces(lt) as t (t.id)}<span><Art {station} cover={t.cover} /></span>{/each}
               </span>
               <span class="title ellipsis">{lt[0]?.title ?? ""}</span>
               <span class="sub ellipsis">{lt.length} · {stamp(p.at)}</span>

@@ -48,6 +48,15 @@
   const BATCH = 32;
   let cap = $state(FIRST);
   const shown = $derived(tracks.slice(0, cap));
+  // 同じ歌　二度並ぶとも　札は別
+  const keys = $derived.by(() => {
+    const seen = new Map<string, number>();
+    return shown.map((t) => {
+      const n = seen.get(t.id) ?? 0;
+      seen.set(t.id, n + 1);
+      return n ? `${t.id}~${n}` : t.id;
+    });
+  });
 
   // 行の群れ　少しずつ解き　声を待つ
   function grow(node: HTMLElement) {
@@ -91,7 +100,7 @@
 
 <!-- 一行に　今か次かか　末にかと -->
 <div class="rows" class:picking={!!picked}>
-  {#each shown as t, i (t.id)}
+  {#each shown as t, i (keys[i])}
     {@const on = queued([t.id])}
     {@const here = t.id === nowId}
     {@const sel = !!picked?.has(t.id)}
