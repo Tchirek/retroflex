@@ -21,6 +21,11 @@
   let flight: { from: Box; t0: number } | null = null;
   let radii = new WeakMap<Element, number>();
   let target: HTMLElement | null = null;
+  let inner: HTMLDivElement;
+  let lastSlot = "";
+  let lastView = "";
+  let hop = false;
+  const STAGE = new Set(["big", "thumb"]);
 
   // 曲線の　緩みを解きて　時に問う
   function bezier(x1: number, y1: number, x2: number, y2: number) {
@@ -61,6 +66,20 @@
     if (!s) return;
     if (slotName !== kind) kind = slotName;
     const to = read(s);
+    // 遠き座へ　飛ばずにそっと　現れる
+    if (hop) {
+      hop = false;
+      if (box && Math.hypot(box.x - to.x, box.y - to.y) > 6) {
+        flight = null;
+        inner?.animate(
+          [
+            { opacity: 0, transform: "scale(0.9)" },
+            { opacity: 1, transform: "scale(1)" },
+          ],
+          { duration: 260, easing: "cubic-bezier(0.2, 0.8, 0.2, 1)" },
+        );
+      }
+    }
     let next = to;
     if (flight) {
       const p = ease(Math.min(1, Math.max(0, now - flight.t0) / DUR));
@@ -94,9 +113,21 @@
 
   $effect(() => {
     void at;
-    void slotName;
+    const name = slotName;
+    const view = at;
     target = null;
-    if (box) flight = { from: box, t0: performance.now() };
+    // 字幕と茶　行き来だけ飛ぶ　鳥の道
+    // 小窓から　大窓へ舞う　鳥の道
+    const flies =
+      !!box &&
+      ((STAGE.has(lastSlot) && STAGE.has(name)) ||
+        (lastSlot === "thumb" && name === "dock" && view === "chat") ||
+        (lastSlot === "dock" && name === "thumb" && lastView === "chat") ||
+        (lastSlot === "dock" && name === "big"));
+    if (flies && box) flight = { from: box, t0: performance.now() };
+    else if (box) hop = true;
+    lastSlot = name;
+    lastView = view;
     wake();
   });
 
@@ -140,7 +171,7 @@
 
 <!-- 盤ひとつ　小窓大窓　渡り鳥 -->
 <div class="float {kind}" bind:this={el} aria-hidden="true">
-  <div class="inner" class:rest={rest && kind === "big"}>
+  <div class="inner" bind:this={inner} class:rest={rest && kind === "big"}>
     <Art {station} {cover} full eager />
   </div>
 </div>
