@@ -76,14 +76,14 @@ fn answer(st: &Station, op: &Op, range: Option<&str>) -> Result<Reply> {
     let index = st.index();
     match op {
         Op::Library => Ok(Reply::bytes("application/json", index.library.to_vec())),
-        Op::Audio { track, relay, download } => {
+        Op::Audio { track, relay, download, legacy } => {
             let Some(item) = index.items.get(track) else { return Ok(Reply::empty(404)) };
             let source = &st.sources[item.src];
             if !relay {
                 if let Some(url) = worker_url(st, source, &item.rel) {
                     return Ok(Reply::redirect(url));
                 }
-                if st.direct || !source.is_bucket() {
+                if st.direct || !(source.is_bucket() || *legacy) {
                     if let Some(url) = source.direct_url(&item.rel) {
                         return Ok(Reply::redirect(url));
                     }

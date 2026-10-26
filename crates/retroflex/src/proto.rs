@@ -46,6 +46,8 @@ pub enum Op {
         relay: bool,
         #[serde(default, skip_serializing_if = "std::ops::Not::not")]
         download: bool,
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        legacy: bool,
     },
     Cover { cover: String, thumb: bool },
     Lyrics { track: String },

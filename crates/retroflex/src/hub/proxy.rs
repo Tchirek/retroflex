@@ -90,7 +90,7 @@ pub async fn audio(
         Ok(link) => {
             let download = p.dl.unwrap_or(0) == 1;
             let opt_in = p.v.unwrap_or(0) >= 2;
-            let op = Op::Audio { track, relay: download || p.relay.unwrap_or(0) == 1 || !opt_in, download };
+            let op = Op::Audio { track, relay: download || p.relay.unwrap_or(0) == 1, download, legacy: !opt_in };
             relay(link, op, range(&headers), "private, max-age=86400").await
         }
         Err(code) => code.into_response(),
