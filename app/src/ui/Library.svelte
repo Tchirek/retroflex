@@ -69,6 +69,49 @@
   const byId = $derived(new Map(tracks.map((t) => [t.id, t])));
   const mine = $derived(playlists.filter((p) => !station || p.station === station.name));
 
+  const FIRST = 48;
+  const STEP = 24;
+  let cards = $state(FIRST);
+  const shelfShown = $derived(shelf.slice(0, cards));
+  const mineShown = $derived(mine.slice(0, cards));
+
+  // 棚の先　少し開きて　歌を待つ
+  function grow(node: HTMLElement) {
+    if (!("IntersectionObserver" in window)) {
+      cards = Math.max(shelf.length, mine.length);
+      return;
+    }
+    const root = node.closest<HTMLElement>(".scroll");
+    let timer = 0;
+    const io = new IntersectionObserver(
+      (entries) => {
+        if (!entries.some((e) => e.isIntersecting)) {
+          clearTimeout(timer);
+          return;
+        }
+        clearTimeout(timer);
+        timer = window.setTimeout(() => {
+          const total = mode === "lists" ? mine.length : shelf.length;
+          if (cards < total) cards = Math.min(total, cards + STEP);
+        }, 140);
+      },
+      { root, rootMargin: "800px 0px" },
+    );
+    io.observe(node);
+    return {
+      destroy: () => {
+        clearTimeout(timer);
+        io.disconnect();
+      },
+    };
+  }
+
+  // 棚を替え　窓の先から　また数う
+  $effect(() => {
+    void mode;
+    cards = FIRST;
+  });
+
   // 届いた束　そのまま開いて　見せにゆく
   $effect(() => {
     const f = focus;
@@ -270,7 +313,7 @@
       </div>
     {:else if mode === "lists"}
       <div class="grid" in:fade={{ duration: 120 }}>
-        {#each mine as p (p.id)}
+        {#each mineShown as p (p.id)}
           {@const lt = full(p.tracks)}
           <div class="card" class:sel={picked.has(p.id)}>
             <button class="face" use:press={() => begin(p.id)} onclick={() => (picking ? flip(p.id) : (list = p))} aria-label={lt[0]?.title}>
@@ -284,10 +327,11 @@
           </div>
         {/each}
       </div>
+      {#if mine.length > cards}<div class="more" use:grow aria-hidden="true"></div>{/if}
     {:else}
       <!-- 背表紙に　触れれば今を　鳴らす釦 -->
       <div class="grid" in:fade={{ duration: 120 }}>
-        {#each shelf as a (a.key)}
+        {#each shelfShown as a (a.key)}
           {@const on = queued(ids(a.tracks))}
           {@const busy = live(a.tracks) && playing}
           <div class="card" class:sel={picked.has(a.key)}>
@@ -311,6 +355,7 @@
           </div>
         {/each}
       </div>
+      {#if shelf.length > cards}<div class="more" use:grow aria-hidden="true"></div>{/if}
     {/if}
     <!-- 名を記し　権は手放す　と小さく -->
     <footer class="legal">
@@ -460,14 +505,20 @@
     height: 100%;
     padding-bottom: 40px;
   }
+  .more {
+    height: 1px;
+  }
   .grid {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(min(140px, calc(50% - 8px)), 1fr));
     gap: 20px 16px;
   }
+  /* 見えぬ棚　絵をば描かず　息を継ぐ */
   .card {
     position: relative;
     min-width: 0;
+    content-visibility: auto;
+    contain-intrinsic-size: auto 230px;
   }
   .face {
     display: flex;
