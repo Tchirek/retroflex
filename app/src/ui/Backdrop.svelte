@@ -115,11 +115,16 @@
           ctx.restore();
         }
       }
-      const img = ctx.getImageData(0, 0, w, h);
-      boxBlur(img.data, w, h, 4);
-      boxBlur(img.data, w, h, 3);
-      tone(img.data);
-      ctx.putImageData(img, 0, 0);
+      // 余所の絵は　読めずば霞の　絵に任す
+      try {
+        const img = ctx.getImageData(0, 0, w, h);
+        boxBlur(img.data, w, h, 4);
+        boxBlur(img.data, w, h, 3);
+        tone(img.data);
+        ctx.putImageData(img, 0, 0);
+      } catch {
+        return;
+      }
       if (!still) raf = requestAnimationFrame(paint);
     };
 
