@@ -43,11 +43,52 @@
     if (t.id === nowId && onplaypause) return onplaypause();
     onadd([snap(t)], "now");
   }
+
+  const FIRST = 48;
+  const BATCH = 32;
+  let cap = $state(FIRST);
+  const shown = $derived(tracks.slice(0, cap));
+
+  // 行の群れ　少しずつ解き　声を待つ
+  function grow(node: HTMLElement) {
+    if (!("IntersectionObserver" in window)) {
+      cap = tracks.length;
+      return;
+    }
+    const root = node.closest<HTMLElement>(".scroll");
+    let timer = 0;
+    const io = new IntersectionObserver(
+      (entries) => {
+        if (!entries.some((e) => e.isIntersecting)) {
+          clearTimeout(timer);
+          return;
+        }
+        clearTimeout(timer);
+        timer = window.setTimeout(() => {
+          if (cap < tracks.length) cap = Math.min(tracks.length, cap + BATCH);
+        }, 140);
+      },
+      { root, rootMargin: "800px 0px" },
+    );
+    io.observe(node);
+    return {
+      destroy: () => {
+        clearTimeout(timer);
+        io.disconnect();
+      },
+    };
+  }
+
+  // 束新し　行の数を　数えけり
+  $effect(() => {
+    void tracks;
+    cap = FIRST;
+  });
 </script>
 
 <!-- 一行に　今か次かか　末にかと -->
 <div class="rows" class:picking={!!picked}>
-  {#each tracks as t, i (t.id)}
+  {#each shown as t, i (t.id)}
     {@const on = queued([t.id])}
     {@const here = t.id === nowId}
     {@const sel = !!picked?.has(t.id)}
@@ -81,6 +122,7 @@
       {/if}
     </div>
   {/each}
+  {#if shown.length < tracks.length}<div class="more" use:grow aria-hidden="true"></div>{/if}
 </div>
 
 <style>
@@ -88,6 +130,9 @@
     display: flex;
     flex-direction: column;
     container-type: inline-size;
+  }
+  .more {
+    height: 1px;
   }
   .row {
     display: flex;
